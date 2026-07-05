@@ -1,20 +1,26 @@
-# UrbanFlow
-
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Rust](https://github.com/utilForever/urbanflow/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/utilForever/urbanflow/actions/workflows/rust.yml)
-[![Typos](https://github.com/utilForever/urbanflow/actions/workflows/typos.yml/badge.svg?branch=main)](https://github.com/utilForever/urbanflow/actions/workflows/typos.yml)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=coverage)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=bugs)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow)
-
-UrbanFlow is a Rust library for a reinforcement learning environment for building and optimizing multimodal urban transit networks with roads, rails, traffic, and passenger demand.
+<p align="center">
+  <picture>
+    <img src="https://raw.githubusercontent.com/utilForever/urbanflow/refs/heads/logo/assets/logo.svg" width="400"/>
+  </picture>
+</p>
+<p align="center">
+  <b>A Rust library for a reinforcement learning environment for building and optimizing multimodal urban transit networks</b>
+</p>
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="https://github.com/utilForever/urbanflow/actions/workflows/rust.yml"><img src="https://github.com/utilForever/urbanflow/actions/workflows/rust.yml/badge.svg?branch=main" alt="Rust" /></a>
+  <a href="https://github.com/utilForever/urbanflow/actions/workflows/typos.yml"><img src="https://github.com/utilForever/urbanflow/actions/workflows/typos.yml/badge.svg?branch=main" alt="Typos" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=alert_status" alt="Quality Gate Status" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=ncloc" alt="Lines of Code" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=coverage" alt="Coverage" /></a>
+  <br />
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=sqale_rating" alt="Maintainability Rating" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=reliability_rating" alt="Reliability Rating" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=security_rating" alt="Security Rating" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=bugs" alt="Bugs" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=vulnerabilities" alt="Vulnerabilities" /></a>
+  <a href="https://sonarcloud.io/summary/new_code?id=utilForever_urbanflow"><img src="https://sonarcloud.io/api/project_badges/measure?project=utilForever_urbanflow&metric=sqale_index" alt="Technical Debt" /></a>
+</p>
 
 ## What This Library Does
 
