@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">UrbanFlow Logo Concept 06 - Isometric City Grid</title>
+  <desc id="desc">An isometric city grid logo combining roads, rail, bus, subway and multimodal urban blocks. Transparent background, alpha zero.</desc>
+  <rect width="1024" height="1024" fill="none" fill-opacity="0"/>
+  <defs>
+
+    <style><![CDATA[
+      .wordmark { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; font-size: 82px; font-weight: 800; letter-spacing: -2px; fill: #172033; }
+      .tagline { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; font-size: 30px; font-weight: 600; letter-spacing: 4px; fill: #516072; }
+      .mini { font-family: 'Inter', 'Segoe UI', Arial, sans-serif; font-size: 22px; font-weight: 700; fill: #172033; }
+      .lane { stroke: #FFFFFF; stroke-width: 10; stroke-linecap: round; stroke-dasharray: 28 26; opacity: .95; }
+      .railSleeper { stroke: #FFFFFF; stroke-width: 10; stroke-linecap: round; stroke-dasharray: 2 26; opacity: .85; }
+    ]]></style>
+    <linearGradient id="c6Flow" x1="160" y1="160" x2="860" y2="860" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2D9CDB" stop-opacity="1"/>
+      <stop offset="55%" stop-color="#00C2A8" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#FF9F1C" stop-opacity="1"/>
+    </linearGradient>
+    <linearGradient id="c6Warm" x1="220" y1="820" x2="820" y2="220" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFB347"/>
+      <stop offset="1" stop-color="#FF6B35"/>
+    </linearGradient>
+
+  </defs>
+
+  <g>
+    <path d="M206 255 L512 116 L818 255 L818 612 L512 752 L206 612 Z" fill="none" stroke="url(#c6Flow)" stroke-width="24" stroke-linejoin="round" opacity="0.96"/>
+    <polygon points="334,282 424,334 334,386 244,334" fill="#E7F9F6" stroke="#D3DEE8" stroke-width="8" stroke-linejoin="round"/>
+<polygon points="456,242 546,294 456,346 366,294" fill="#EAF2FF" stroke="#D3DEE8" stroke-width="8" stroke-linejoin="round"/>
+<polygon points="578,282 668,334 578,386 488,334" fill="#FFF3E0" stroke="#D3DEE8" stroke-width="8" stroke-linejoin="round"/>
+<polygon points="398,403 488,455 398,507 308,455" fill="#EAF2FF" stroke="#D3DEE8" stroke-width="8" stroke-linejoin="round"/>
+<polygon points="522,364 612,416 522,468 432,416" fill="#E7F9F6" stroke="#D3DEE8" stroke-width="8" stroke-linejoin="round"/>
+<polygon points="646,403 736,455 646,507 556,455" fill="#FFF3E0" stroke="#D3DEE8" stroke-width="8" stroke-linejoin="round"/>
+
+    <path d="M226 516 L512 646 L798 516" fill="none" stroke="#172033" stroke-width="60" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M226 516 L512 646 L798 516" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-dasharray="28 28"/>
+    <path d="M256 341 L512 462 L768 341" fill="none" stroke="#2D9CDB" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M256 341 L512 462 L768 341" fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-dasharray="2 26" opacity="0.95"/>
+    <g>
+      <polygon points="407,279 456,257 506,279 456,301" fill="#22314D"/>
+      <polygon points="407,279 456,301 456,410 407,388" fill="#172033"/>
+      <polygon points="456,301 506,279 506,386 456,410" fill="#243955"/>
+      <polygon points="540,324 586,303 637,326 589,350" fill="#22314D"/>
+      <polygon points="540,324 589,350 589,458 540,431" fill="#172033"/>
+      <polygon points="589,350 637,326 637,432 589,458" fill="#243955"/>
+      <polygon points="333,399 377,379 421,400 377,422" fill="#22314D"/>
+      <polygon points="333,399 377,422 377,514 333,491" fill="#172033"/>
+      <polygon points="377,422 421,400 421,491 377,514" fill="#243955"/>
+      <circle cx="456" cy="338" r="6" fill="#00C2A8" opacity="0.75"/>
+      <circle cx="589" cy="382" r="6" fill="#FF9F1C" opacity="0.75"/>
+      <circle cx="377" cy="454" r="6" fill="#2D9CDB" opacity="0.75"/>
+    </g>
+    
+    <g transform="translate(553 562) scale(0.5)">
+      <rect x="0" y="0" width="160" height="78" rx="20" fill="#FF9F1C"/>
+      <rect x="18" y="18" width="38" height="25" rx="6" fill="#FFFFFF" opacity="0.86"/>
+      <rect x="64" y="18" width="38" height="25" rx="6" fill="#FFFFFF" opacity="0.86"/>
+      <rect x="110" y="18" width="30" height="25" rx="6" fill="#FFFFFF" opacity="0.86"/>
+      <circle cx="42" cy="78" r="16" fill="#172033"/>
+      <circle cx="124" cy="78" r="16" fill="#172033"/>
+      <circle cx="42" cy="78" r="7" fill="#FFFFFF" opacity="0.9"/>
+      <circle cx="124" cy="78" r="7" fill="#FFFFFF" opacity="0.9"/>
+    </g>
+    
+    <g transform="translate(312 328) scale(0.44)">
+      <rect x="0" y="0" width="178" height="86" rx="26" fill="#2D9CDB"/>
+      <rect x="22" y="17" width="42" height="29" rx="8" fill="#FFFFFF" opacity="0.88"/>
+      <rect x="72" y="17" width="42" height="29" rx="8" fill="#FFFFFF" opacity="0.88"/>
+      <rect x="122" y="17" width="34" height="29" rx="8" fill="#FFFFFF" opacity="0.88"/>
+      <circle cx="48" cy="76" r="8" fill="#172033" opacity="0.85"/>
+      <circle cx="130" cy="76" r="8" fill="#172033" opacity="0.85"/>
+      <path d="M42 96 L24 118 M136 96 L154 118" stroke="#172033" stroke-width="10" stroke-linecap="round"/>
+    </g>
+    <circle cx="256" cy="341" r="15" fill="#2D9CDB" stroke="#172033" stroke-width="8"/>
+<circle cx="256" cy="341" r="5.0" fill="#FFFFFF" opacity="0.9"/>
+<circle cx="512" cy="462" r="17" fill="#00C2A8" stroke="#172033" stroke-width="8"/>
+<circle cx="512" cy="462" r="5.7" fill="#FFFFFF" opacity="0.9"/>
+<circle cx="768" cy="341" r="15" fill="#2D9CDB" stroke="#172033" stroke-width="8"/>
+<circle cx="768" cy="341" r="5.0" fill="#FFFFFF" opacity="0.9"/>
+
+  </g>
+  <text class="wordmark" x="512" y="867" text-anchor="middle">UrbanFlow</text>
+  <text class="tagline" x="512" y="916" text-anchor="middle">MULTIMODAL SIMULATION</text>
+
+</svg>
