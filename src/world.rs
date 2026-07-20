@@ -22,3 +22,21 @@ pub enum EdgeKind {
     Road,
     Rail,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn world_model_types_compose() {
+        let node = Node { id: NodeId(1) };
+        let edge = Edge {
+            id: EdgeId(2),
+            from: node.id,
+            to: NodeId(3),
+            kind: EdgeKind::Rail,
+        };
+
+        assert_eq!(edge.from, node.id);
+    }
+}
