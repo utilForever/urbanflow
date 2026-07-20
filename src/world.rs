@@ -8,3 +8,17 @@ pub struct EdgeId(pub usize);
 pub struct Node {
     pub id: NodeId,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Edge {
+    pub id: EdgeId,
+    pub from: NodeId,
+    pub to: NodeId,
+    pub kind: EdgeKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EdgeKind {
+    Road,
+    Rail,
+}
