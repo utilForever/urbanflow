@@ -1,14 +1,13 @@
+/// Identifier of a node in the toy city network.
 pub type NodeId = usize;
 
-/// A minimal origin-destination demand entry.
-///
-/// Represents the flow pressure from `origin` to `destination` as a scalar
-/// `amount`. This is intentionally small for Sprint 1: it only references the
-/// two node ids and stores the demand amount.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Demand {
+    /// Node the demand originates from.
     pub origin: NodeId,
+    /// Node the demand is headed to.
     pub destination: NodeId,
+    /// Amount of demand flowing from `origin` to `destination`.
     pub amount: u32,
 }
 
