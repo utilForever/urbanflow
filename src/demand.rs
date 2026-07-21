@@ -1,5 +1,4 @@
-/// Identifier of a node in the toy city network.
-pub type NodeId = usize;
+use crate::NodeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Demand {

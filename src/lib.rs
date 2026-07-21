@@ -1,5 +1,8 @@
 pub mod demand;
 pub mod metrics;
+pub mod network;
+
+pub type NodeId = usize;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
