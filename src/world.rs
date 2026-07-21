@@ -83,4 +83,27 @@ mod tests {
 
         assert_eq!(edge.from, node.id);
     }
+
+    #[test]
+    fn network_adds_valid_edges_and_rejects_invalid_ones() {
+        let mut network = Network::new();
+
+        assert_eq!(
+            network.add_edge(NodeId(1), NodeId(2), EdgeKind::Rail),
+            Ok(EdgeId(0))
+        );
+        assert_eq!(
+            network.add_edge(NodeId(1), NodeId(2), EdgeKind::Road),
+            Ok(EdgeId(1))
+        );
+        assert_eq!(
+            network.add_edge(NodeId(1), NodeId(2), EdgeKind::Rail),
+            Err(AddEdgeError::DuplicateEdge)
+        );
+        assert_eq!(
+            network.add_edge(NodeId(1), NodeId(1), EdgeKind::Road),
+            Err(AddEdgeError::SelfConnection)
+        );
+        assert_eq!(network.edges().len(), 2);
+    }
 }
