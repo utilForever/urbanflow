@@ -23,6 +23,50 @@ pub enum EdgeKind {
     Rail,
 }
 
+#[derive(Debug, Default)]
+pub struct Network {
+    edges: Vec<Edge>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AddEdgeError {
+    DuplicateEdge,
+    SelfConnection,
+}
+
+impl Network {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn edges(&self) -> &[Edge] {
+        &self.edges
+    }
+
+    pub fn add_edge(
+        &mut self,
+        from: NodeId,
+        to: NodeId,
+        kind: EdgeKind,
+    ) -> Result<EdgeId, AddEdgeError> {
+        if from == to {
+            return Err(AddEdgeError::SelfConnection);
+        }
+
+        if self
+            .edges
+            .iter()
+            .any(|edge| edge.from == from && edge.to == to && edge.kind == kind)
+        {
+            return Err(AddEdgeError::DuplicateEdge);
+        }
+
+        let id = EdgeId(self.edges.len());
+        self.edges.push(Edge { id, from, to, kind });
+        Ok(id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
