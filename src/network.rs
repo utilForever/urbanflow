@@ -28,13 +28,17 @@ impl Network {
 
     /// Add an undirected edge between `a` and `b`, growing the node set to
     /// fit the larger id if needed.
+    ///
+    /// A self-loop (`a == b`) is recorded once rather than as a duplicate.
     pub fn add_edge(&mut self, a: NodeId, b: NodeId) {
         let max = a.max(b);
         if max >= self.adjacency.len() {
             self.adjacency.resize(max + 1, Vec::new());
         }
         self.adjacency[a].push(b);
-        self.adjacency[b].push(a);
+        if a != b {
+            self.adjacency[b].push(a);
+        }
     }
 
     /// Whether `destination` is reachable from `origin` via a breadth-first
@@ -131,5 +135,12 @@ mod tests {
         let net = line_network();
         assert!(net.can_serve(&Demand::new(0, 3, 10)));
         assert!(!net.can_serve(&Demand::new(0, 99, 10)));
+    }
+
+    #[test]
+    fn test_self_loop_recorded_once() {
+        let mut net = Network::new();
+        net.add_edge(2, 2);
+        assert_eq!(net.adjacency[2].len(), 1);
     }
 }
