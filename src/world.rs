@@ -28,6 +28,12 @@ pub struct Network {
     edges: Vec<Edge>,
 }
 
+#[derive(Debug)]
+pub struct ToyCity {
+    pub nodes: [Node; 4],
+    pub network: Network,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AddEdgeError {
     DuplicateEdge,
@@ -65,6 +71,25 @@ impl Network {
         self.edges.push(Edge { id, from, to, kind });
         Ok(id)
     }
+}
+
+pub fn toy_city() -> ToyCity {
+    let nodes = [
+        Node { id: NodeId(0) },
+        Node { id: NodeId(1) },
+        Node { id: NodeId(2) },
+        Node { id: NodeId(3) },
+    ];
+    let mut network = Network::new();
+
+    network
+        .add_edge(nodes[0].id, nodes[1].id, EdgeKind::Road)
+        .expect("toy city edges are valid");
+    network
+        .add_edge(nodes[2].id, nodes[3].id, EdgeKind::Rail)
+        .expect("toy city edges are valid");
+
+    ToyCity { nodes, network }
 }
 
 #[cfg(test)]
