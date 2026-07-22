@@ -131,4 +131,31 @@ mod tests {
         );
         assert_eq!(network.edges().len(), 2);
     }
+
+    #[test]
+    fn toy_city_is_fixed() {
+        let city = toy_city();
+
+        assert_eq!(
+            city.nodes.map(|node| node.id),
+            [NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+        );
+        assert_eq!(
+            city.network.edges(),
+            &[
+                Edge {
+                    id: EdgeId(0),
+                    from: NodeId(0),
+                    to: NodeId(1),
+                    kind: EdgeKind::Road,
+                },
+                Edge {
+                    id: EdgeId(1),
+                    from: NodeId(2),
+                    to: NodeId(3),
+                    kind: EdgeKind::Rail,
+                },
+            ]
+        );
+    }
 }
