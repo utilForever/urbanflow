@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use crate::demand::Demand;
 use crate::world::{Network, NodeId};
@@ -10,6 +10,11 @@ use crate::world::{Network, NodeId};
 /// every edge on each step, so this index materializes an adjacency list once
 /// and runs breadth-first searches against it.
 ///
+/// Node ids are interned into contiguous positions rather than used as offsets
+/// directly, because [`Network`] accepts any [`NodeId`]. Storage therefore grows
+/// with the number of nodes an edge actually mentions, and even `usize::MAX` is
+/// just one more entry.
+///
 /// Links are one-way, matching both the stored edges and the `AddEdge` action:
 /// a two-way link is two edges, and costs the builder twice. Traversal never
 /// walks an edge backwards, so serving a demand always reflects infrastructure
@@ -20,29 +25,48 @@ use crate::world::{Network, NodeId};
 /// derives its node set from edges; an isolated node cannot be represented.
 #[derive(Debug, Default, Clone)]
 pub struct ConnectivityIndex {
-    /// `successors[n]` holds the nodes reachable from `n` in one forward step.
-    successors: Vec<Vec<NodeId>>,
+    /// Interned position of each node. Looked up by key only, never iterated,
+    /// so traversal order stays deterministic.
+    position_of: HashMap<NodeId, usize>,
+    /// `successors[p]` holds the interned positions reachable from position `p`
+    /// in one forward step.
+    successors: Vec<Vec<usize>>,
+}
+
+/// Return the interned position of `node`, assigning the next one if this is
+/// the first time the node is seen.
+fn intern(
+    node: NodeId,
+    position_of: &mut HashMap<NodeId, usize>,
+    successors: &mut Vec<Vec<usize>>,
+) -> usize {
+    *position_of.entry(node).or_insert_with(|| {
+        successors.push(Vec::new());
+        successors.len() - 1
+    })
 }
 
 impl ConnectivityIndex {
     /// Build the index from `network`, following each edge in its `from -> to`
     /// direction only.
     pub fn from_network(network: &Network) -> Self {
-        let mut successors: Vec<Vec<NodeId>> = Vec::new();
+        let mut position_of = HashMap::new();
+        let mut successors: Vec<Vec<usize>> = Vec::new();
 
         for edge in network.edges() {
-            let needed = edge.from.0.max(edge.to.0) + 1;
-            if needed > successors.len() {
-                successors.resize(needed, Vec::new());
-            }
-            successors[edge.from.0].push(edge.to);
+            let from = intern(edge.from, &mut position_of, &mut successors);
+            let to = intern(edge.to, &mut position_of, &mut successors);
+            successors[from].push(to);
         }
 
-        Self { successors }
+        Self {
+            position_of,
+            successors,
+        }
     }
 
-    /// Number of nodes the index covers: the highest node id referenced by an
-    /// edge, plus one.
+    /// Number of distinct nodes the index covers, i.e. how many nodes are named
+    /// by at least one edge.
     pub fn node_count(&self) -> usize {
         self.successors.len()
     }
@@ -50,28 +74,31 @@ impl ConnectivityIndex {
     /// Whether `destination` can be reached from `origin` by following edges in
     /// their forward direction.
     ///
-    /// A node always reaches itself (as long as it falls within the covered
-    /// range); ids outside that range are never reachable.
+    /// A node always reaches itself (as long as an edge mentions it); nodes the
+    /// network never mentions are not reachable, whatever their id.
     pub fn is_reachable(&self, origin: NodeId, destination: NodeId) -> bool {
-        if origin.0 >= self.successors.len() || destination.0 >= self.successors.len() {
+        let Some(&origin) = self.position_of.get(&origin) else {
             return false;
-        }
+        };
+        let Some(&destination) = self.position_of.get(&destination) else {
+            return false;
+        };
         if origin == destination {
             return true;
         }
 
         let mut visited = vec![false; self.successors.len()];
         let mut queue = VecDeque::new();
-        visited[origin.0] = true;
+        visited[origin] = true;
         queue.push_back(origin);
 
         while let Some(node) = queue.pop_front() {
-            for &next in &self.successors[node.0] {
+            for &next in &self.successors[node] {
                 if next == destination {
                     return true;
                 }
-                if !visited[next.0] {
-                    visited[next.0] = true;
+                if !visited[next] {
+                    visited[next] = true;
                     queue.push_back(next);
                 }
             }
@@ -141,12 +168,32 @@ mod tests {
 
     #[test]
     fn test_unknown_node_is_unreachable() {
-        assert!(!line_index().is_reachable(NodeId(0), NodeId(99)));
+        let idx = line_index();
+        assert!(!idx.is_reachable(NodeId(0), NodeId(99)));
+        assert!(!idx.is_reachable(NodeId(99), NodeId(99)));
     }
 
     #[test]
     fn test_node_count_covers_referenced_nodes() {
         assert_eq!(line_index().node_count(), 4);
+    }
+
+    /// `Network` puts no bound on a `NodeId`, so the index must cope with ids
+    /// that are huge or far apart without overflowing or sizing storage to the
+    /// id itself.
+    #[test]
+    fn test_sparse_node_ids_are_handled() {
+        let highest = NodeId(usize::MAX);
+        let middling = NodeId(usize::MAX / 2);
+
+        let mut net = Network::new();
+        net.add_edge(highest, NodeId(0), EdgeKind::Road).unwrap();
+        net.add_edge(NodeId(0), middling, EdgeKind::Rail).unwrap();
+        let idx = ConnectivityIndex::from_network(&net);
+
+        assert_eq!(idx.node_count(), 3);
+        assert!(idx.is_reachable(highest, middling));
+        assert!(!idx.is_reachable(middling, highest));
     }
 
     #[test]
