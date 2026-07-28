@@ -1,4 +1,4 @@
-use crate::NodeId;
+use crate::world::NodeId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Demand {
@@ -26,9 +26,9 @@ mod tests {
 
     #[test]
     fn test_demand_creation() {
-        let demand = Demand::new(1, 2, 100);
-        assert_eq!(demand.origin, 1);
-        assert_eq!(demand.destination, 2);
+        let demand = Demand::new(NodeId(1), NodeId(2), 100);
+        assert_eq!(demand.origin, NodeId(1));
+        assert_eq!(demand.destination, NodeId(2));
         assert_eq!(demand.amount, 100);
     }
 }

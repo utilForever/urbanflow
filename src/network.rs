@@ -1,71 +1,77 @@
 use std::collections::VecDeque;
 
-use crate::NodeId;
 use crate::demand::Demand;
+use crate::world::{Network, NodeId};
 
-/// An unweighted, undirected graph of the city network.
+/// A directed reachability index derived from a [`Network`].
 ///
-/// Nodes are identified by contiguous `NodeId`s and stored as an adjacency
-/// list. Sprint 1 only needs to answer reachability ("are two nodes connected?"),
-/// so edges carry no weight, direction, or capacity.
+/// [`Network`] stores the city graph as a flat list of typed, directed edges.
+/// Answering "can node A reach node B?" against that shape would mean scanning
+/// every edge on each step, so this index materializes an adjacency list once
+/// and runs breadth-first searches against it.
+///
+/// Links are one-way, matching both the stored edges and the `AddEdge` action:
+/// a two-way link is two edges, and costs the builder twice. Traversal never
+/// walks an edge backwards, so serving a demand always reflects infrastructure
+/// that was actually built.
+///
+/// This is a read-only view: rebuild it whenever the underlying `Network`
+/// changes. Only nodes referenced by an edge are covered, because `Network`
+/// derives its node set from edges; an isolated node cannot be represented.
 #[derive(Debug, Default, Clone)]
-pub struct Network {
-    /// `adjacency[n]` holds the neighbors of node `n`.
-    adjacency: Vec<Vec<NodeId>>,
+pub struct ConnectivityIndex {
+    /// `successors[n]` holds the nodes reachable from `n` in one forward step.
+    successors: Vec<Vec<NodeId>>,
 }
 
-impl Network {
-    pub fn new() -> Self {
-        Self {
-            adjacency: Vec::new(),
+impl ConnectivityIndex {
+    /// Build the index from `network`, following each edge in its `from -> to`
+    /// direction only.
+    pub fn from_network(network: &Network) -> Self {
+        let mut successors: Vec<Vec<NodeId>> = Vec::new();
+
+        for edge in network.edges() {
+            let needed = edge.from.0.max(edge.to.0) + 1;
+            if needed > successors.len() {
+                successors.resize(needed, Vec::new());
+            }
+            successors[edge.from.0].push(edge.to);
         }
+
+        Self { successors }
     }
 
-    /// Number of nodes currently in the network.
+    /// Number of nodes the index covers: the highest node id referenced by an
+    /// edge, plus one.
     pub fn node_count(&self) -> usize {
-        self.adjacency.len()
+        self.successors.len()
     }
 
-    /// Add an undirected edge between `a` and `b`, growing the node set to
-    /// fit the larger id if needed.
+    /// Whether `destination` can be reached from `origin` by following edges in
+    /// their forward direction.
     ///
-    /// A self-loop (`a == b`) is recorded once rather than as a duplicate.
-    pub fn add_edge(&mut self, a: NodeId, b: NodeId) {
-        let max = a.max(b);
-        if max >= self.adjacency.len() {
-            self.adjacency.resize(max + 1, Vec::new());
-        }
-        self.adjacency[a].push(b);
-        if a != b {
-            self.adjacency[b].push(a);
-        }
-    }
-
-    /// Whether `destination` is reachable from `origin` via a breadth-first
-    /// traversal.
-    ///
-    /// A node always reaches itself (as long as it exists); ids outside the
-    /// current node set are never reachable.
+    /// A node always reaches itself (as long as it falls within the covered
+    /// range); ids outside that range are never reachable.
     pub fn is_reachable(&self, origin: NodeId, destination: NodeId) -> bool {
-        if origin >= self.adjacency.len() || destination >= self.adjacency.len() {
+        if origin.0 >= self.successors.len() || destination.0 >= self.successors.len() {
             return false;
         }
         if origin == destination {
             return true;
         }
 
-        let mut visited = vec![false; self.adjacency.len()];
+        let mut visited = vec![false; self.successors.len()];
         let mut queue = VecDeque::new();
-        visited[origin] = true;
+        visited[origin.0] = true;
         queue.push_back(origin);
 
         while let Some(node) = queue.pop_front() {
-            for &next in &self.adjacency[node] {
+            for &next in &self.successors[node.0] {
                 if next == destination {
                     return true;
                 }
-                if !visited[next] {
-                    visited[next] = true;
+                if !visited[next.0] {
+                    visited[next.0] = true;
                     queue.push_back(next);
                 }
             }
@@ -73,8 +79,8 @@ impl Network {
         false
     }
 
-    /// Whether the network can serve `demand`, i.e. its origin and
-    /// destination are connected.
+    /// Whether the network can serve `demand`, i.e. a directed path runs from
+    /// its origin to its destination.
     pub fn can_serve(&self, demand: &Demand) -> bool {
         self.is_reachable(demand.origin, demand.destination)
     }
@@ -83,64 +89,72 @@ impl Network {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::EdgeKind;
 
-    /// Builds a simple line: 0 - 1 - 2 - 3.
-    fn line_network() -> Network {
+    /// Builds a directed line: 0 -> 1 -> 2 -> 3.
+    fn line_index() -> ConnectivityIndex {
         let mut net = Network::new();
-        net.add_edge(0, 1);
-        net.add_edge(1, 2);
-        net.add_edge(2, 3);
-        net
+        net.add_edge(NodeId(0), NodeId(1), EdgeKind::Road).unwrap();
+        net.add_edge(NodeId(1), NodeId(2), EdgeKind::Road).unwrap();
+        net.add_edge(NodeId(2), NodeId(3), EdgeKind::Road).unwrap();
+        ConnectivityIndex::from_network(&net)
     }
 
     #[test]
     fn test_direct_edge_is_reachable() {
-        let net = line_network();
-        assert!(net.is_reachable(0, 1));
+        assert!(line_index().is_reachable(NodeId(0), NodeId(1)));
     }
 
     #[test]
     fn test_multi_hop_is_reachable() {
-        let net = line_network();
-        assert!(net.is_reachable(0, 3));
+        assert!(line_index().is_reachable(NodeId(0), NodeId(3)));
     }
 
     #[test]
-    fn test_undirected_reachable_both_ways() {
-        let net = line_network();
-        assert!(net.is_reachable(3, 0));
+    fn test_reachability_follows_edge_direction() {
+        // The line only points forward, so 3 cannot reach 0.
+        assert!(!line_index().is_reachable(NodeId(3), NodeId(0)));
+    }
+
+    #[test]
+    fn test_two_way_link_needs_both_edges() {
+        let mut net = Network::new();
+        net.add_edge(NodeId(0), NodeId(1), EdgeKind::Rail).unwrap();
+        assert!(!ConnectivityIndex::from_network(&net).is_reachable(NodeId(1), NodeId(0)));
+
+        net.add_edge(NodeId(1), NodeId(0), EdgeKind::Rail).unwrap();
+        assert!(ConnectivityIndex::from_network(&net).is_reachable(NodeId(1), NodeId(0)));
     }
 
     #[test]
     fn test_disconnected_is_unreachable() {
-        let mut net = line_network();
-        net.add_edge(5, 6); // separate component
-        assert!(!net.is_reachable(0, 5));
+        let mut net = Network::new();
+        net.add_edge(NodeId(0), NodeId(1), EdgeKind::Road).unwrap();
+        net.add_edge(NodeId(2), NodeId(3), EdgeKind::Rail).unwrap(); // separate component
+        assert!(!ConnectivityIndex::from_network(&net).is_reachable(NodeId(0), NodeId(3)));
     }
 
     #[test]
     fn test_node_reaches_itself() {
-        let net = line_network();
-        assert!(net.is_reachable(2, 2));
+        assert!(line_index().is_reachable(NodeId(2), NodeId(2)));
     }
 
     #[test]
     fn test_unknown_node_is_unreachable() {
-        let net = line_network();
-        assert!(!net.is_reachable(0, 99));
+        assert!(!line_index().is_reachable(NodeId(0), NodeId(99)));
+    }
+
+    #[test]
+    fn test_node_count_covers_referenced_nodes() {
+        assert_eq!(line_index().node_count(), 4);
     }
 
     #[test]
     fn test_can_serve_demand() {
-        let net = line_network();
-        assert!(net.can_serve(&Demand::new(0, 3, 10)));
-        assert!(!net.can_serve(&Demand::new(0, 99, 10)));
-    }
-
-    #[test]
-    fn test_self_loop_recorded_once() {
-        let mut net = Network::new();
-        net.add_edge(2, 2);
-        assert_eq!(net.adjacency[2].len(), 1);
+        let idx = line_index();
+        assert!(idx.can_serve(&Demand::new(NodeId(0), NodeId(3), 10)));
+        // The return trip is a separate demand, and needs its own edges.
+        assert!(!idx.can_serve(&Demand::new(NodeId(3), NodeId(0), 10)));
+        assert!(!idx.can_serve(&Demand::new(NodeId(0), NodeId(99), 10)));
     }
 }
