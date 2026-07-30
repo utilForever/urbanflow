@@ -15,6 +15,7 @@
 - [ ] `cargo clippy --all-targets -- -D warnings` passes
 - [ ] `cargo test --all` passes
 - [ ] I linked the related issue (for example: `Closes #6`)
+- [ ] Sprint 1 changes use only the standard library, fixed graph data, and UI-free core model code unless a linked follow-up issue expands scope
 
 ### Functional Validation
 
