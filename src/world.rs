@@ -29,10 +29,12 @@ pub struct Network {
 }
 
 #[derive(Debug)]
-pub struct ToyCity {
+pub struct World {
     pub nodes: [Node; 4],
     pub network: Network,
 }
+
+pub type ToyCity = World;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AddEdgeError {
@@ -89,7 +91,7 @@ pub fn toy_city() -> ToyCity {
         .add_edge(nodes[2].id, nodes[3].id, EdgeKind::Rail)
         .expect("toy city edges are valid");
 
-    ToyCity { nodes, network }
+    World { nodes, network }
 }
 
 #[cfg(test)]
