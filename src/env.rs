@@ -92,6 +92,11 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reward_uses_all_metrics() {
+        assert_eq!(reward(Metrics::new(8, 2, 0.25, 12.5)), -6.75);
+    }
+
+    #[test]
     fn reward_preserves_small_differences_between_large_totals() {
         let limit = 1_u64 << 53;
 
