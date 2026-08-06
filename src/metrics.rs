@@ -7,9 +7,9 @@
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Metrics {
     /// Total demand amount that was successfully served.
-    pub served_demand: u32,
+    pub served_demand: u64,
     /// Total demand amount that could not be served.
-    pub unserved_demand: u32,
+    pub unserved_demand: u64,
     /// Aggregate congestion level of the network.
     pub congestion: f64,
     /// Aggregate network cost.
@@ -17,7 +17,7 @@ pub struct Metrics {
 }
 
 impl Metrics {
-    pub fn new(served_demand: u32, unserved_demand: u32, congestion: f64, cost: f64) -> Self {
+    pub fn new(served_demand: u64, unserved_demand: u64, congestion: f64, cost: f64) -> Self {
         Self {
             served_demand,
             unserved_demand,
