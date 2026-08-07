@@ -13,6 +13,7 @@ pub struct Env {
     pub metrics: Metrics,
     pub budget: f64,
     pub step_count: usize,
+    pub max_steps: usize,
 }
 
 fn reward(metrics: Metrics) -> f64 {
@@ -32,12 +33,14 @@ impl Env {
     }
 
     pub fn reset(&mut self) -> Observation {
+        let max_steps = self.max_steps;
         *self = Self {
             world: toy_city(),
             demands: vec![Demand::new(NodeId(0), NodeId(3), 10)],
             metrics: Metrics::default(),
             budget: 100.0,
             step_count: 0,
+            max_steps,
         };
 
         self.observation()

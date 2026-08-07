@@ -14,6 +14,7 @@ fn reset_env() -> Env {
         metrics: Metrics::default(),
         budget: 0.0,
         step_count: 0,
+        max_steps: 100,
     };
     env.reset();
     env
@@ -31,6 +32,7 @@ fn env_holds_current_state() {
         metrics,
         budget: 100.0,
         step_count: 3,
+        max_steps: 100,
     };
 
     assert_eq!(env.world.nodes.len(), 4);
@@ -39,6 +41,7 @@ fn env_holds_current_state() {
     assert_eq!(env.metrics, metrics);
     assert_eq!(env.budget, 100.0);
     assert_eq!(env.step_count, 3);
+    assert_eq!(env.max_steps, 100);
 }
 
 #[test]
@@ -55,6 +58,7 @@ fn reset_restores_the_fixed_initial_state() {
         metrics: Metrics::new(1, 2, 3.0, 4.0),
         budget: 1.0,
         step_count: 7,
+        max_steps: 7,
     };
 
     let observation = env.reset();
@@ -79,6 +83,7 @@ fn reset_restores_the_fixed_initial_state() {
     assert_eq!(env.metrics, Metrics::default());
     assert_eq!(env.budget, 100.0);
     assert_eq!(env.step_count, 0);
+    assert_eq!(env.max_steps, 7);
 }
 
 #[test]
