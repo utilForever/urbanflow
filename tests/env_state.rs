@@ -117,6 +117,39 @@ fn step_simulates_reachable_demand() {
 }
 
 #[test]
+fn step_finishes_at_max_steps() {
+    let mut env = reset_env();
+    env.max_steps = 1;
+
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+
+    assert!(result.done);
+}
+
+#[test]
+fn step_finishes_when_budget_cannot_cover_another_edge() {
+    let mut env = reset_env();
+    env.budget = 1.0;
+
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+
+    assert_eq!(result.observation.budget, 0.0);
+    assert!(result.done);
+}
+
+#[test]
 fn step_penalizes_unserved_demand() {
     let mut env = reset_env();
 

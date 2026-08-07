@@ -87,7 +87,7 @@ impl Env {
         Ok(StepResult {
             observation: self.observation(),
             reward,
-            done: false,
+            done: self.step_count >= self.max_steps || self.budget < CONSTRUCTION_COST,
             metrics: self.metrics,
         })
     }
