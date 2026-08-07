@@ -16,6 +16,8 @@ pub struct Env {
     pub max_steps: usize,
 }
 
+const CONSTRUCTION_COST: f64 = 1.0;
+
 fn reward(metrics: Metrics) -> f64 {
     let demand = i128::from(metrics.served_demand) - i128::from(metrics.unserved_demand);
     demand as f64 - metrics.congestion - metrics.cost
@@ -61,6 +63,7 @@ impl Env {
             .expect("step count exceeds environment capacity");
 
         self.world.network.add_edge(from, to, kind)?;
+        self.budget -= CONSTRUCTION_COST;
         self.step_count = next_step_count;
 
         let connectivity = ConnectivityIndex::from_network(&self.world.network);

@@ -109,7 +109,7 @@ fn step_simulates_reachable_demand() {
     );
     assert_eq!(env.step_count, 1);
     assert_eq!(result.observation.step_count, 1);
-    assert_eq!(result.observation.budget, 100.0);
+    assert_eq!(result.observation.budget, 99.0);
     assert_eq!(result.metrics, Metrics::new(10, 0, 0.0, 3.0));
     assert_eq!(env.metrics, result.metrics);
     assert_eq!(result.reward, 7.0);
@@ -177,6 +177,7 @@ fn invalid_action_does_not_advance_the_environment() {
     env.metrics = metrics;
 
     let edges = env.world.network.edges().to_vec();
+    let budget = env.budget;
 
     assert_eq!(
         env.step(Action::AddEdge {
@@ -189,5 +190,6 @@ fn invalid_action_does_not_advance_the_environment() {
     );
     assert_eq!(env.world.network.edges(), edges);
     assert_eq!(env.metrics, metrics);
+    assert_eq!(env.budget, budget);
     assert_eq!(env.step_count, 0);
 }
