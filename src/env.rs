@@ -13,7 +13,10 @@ pub struct Env {
     pub metrics: Metrics,
     pub budget: f64,
     pub step_count: usize,
+    pub max_steps: usize,
 }
+
+const CONSTRUCTION_COST: f64 = 1.0;
 
 fn reward(metrics: Metrics) -> f64 {
     let demand = i128::from(metrics.served_demand) - i128::from(metrics.unserved_demand);
@@ -32,12 +35,14 @@ impl Env {
     }
 
     pub fn reset(&mut self) -> Observation {
+        let max_steps = self.max_steps;
         *self = Self {
             world: toy_city(),
             demands: vec![Demand::new(NodeId(0), NodeId(3), 10)],
             metrics: Metrics::default(),
             budget: 100.0,
             step_count: 0,
+            max_steps,
         };
 
         self.observation()
@@ -58,6 +63,7 @@ impl Env {
             .expect("step count exceeds environment capacity");
 
         self.world.network.add_edge(from, to, kind)?;
+        self.budget -= CONSTRUCTION_COST;
         self.step_count = next_step_count;
 
         let connectivity = ConnectivityIndex::from_network(&self.world.network);
@@ -81,7 +87,7 @@ impl Env {
         Ok(StepResult {
             observation: self.observation(),
             reward,
-            done: false,
+            done: self.step_count >= self.max_steps || self.budget < CONSTRUCTION_COST,
             metrics: self.metrics,
         })
     }

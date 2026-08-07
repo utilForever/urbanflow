@@ -14,6 +14,7 @@ fn reset_env() -> Env {
         metrics: Metrics::default(),
         budget: 0.0,
         step_count: 0,
+        max_steps: 100,
     };
     env.reset();
     env
@@ -31,6 +32,7 @@ fn env_holds_current_state() {
         metrics,
         budget: 100.0,
         step_count: 3,
+        max_steps: 100,
     };
 
     assert_eq!(env.world.nodes.len(), 4);
@@ -39,6 +41,7 @@ fn env_holds_current_state() {
     assert_eq!(env.metrics, metrics);
     assert_eq!(env.budget, 100.0);
     assert_eq!(env.step_count, 3);
+    assert_eq!(env.max_steps, 100);
 }
 
 #[test]
@@ -55,6 +58,7 @@ fn reset_restores_the_fixed_initial_state() {
         metrics: Metrics::new(1, 2, 3.0, 4.0),
         budget: 1.0,
         step_count: 7,
+        max_steps: 7,
     };
 
     let observation = env.reset();
@@ -79,6 +83,7 @@ fn reset_restores_the_fixed_initial_state() {
     assert_eq!(env.metrics, Metrics::default());
     assert_eq!(env.budget, 100.0);
     assert_eq!(env.step_count, 0);
+    assert_eq!(env.max_steps, 7);
 }
 
 #[test]
@@ -104,11 +109,44 @@ fn step_simulates_reachable_demand() {
     );
     assert_eq!(env.step_count, 1);
     assert_eq!(result.observation.step_count, 1);
-    assert_eq!(result.observation.budget, 100.0);
+    assert_eq!(result.observation.budget, 99.0);
     assert_eq!(result.metrics, Metrics::new(10, 0, 0.0, 3.0));
     assert_eq!(env.metrics, result.metrics);
     assert_eq!(result.reward, 7.0);
     assert!(!result.done);
+}
+
+#[test]
+fn step_finishes_at_max_steps() {
+    let mut env = reset_env();
+    env.max_steps = 1;
+
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+
+    assert!(result.done);
+}
+
+#[test]
+fn step_finishes_when_budget_cannot_cover_another_edge() {
+    let mut env = reset_env();
+    env.budget = 1.0;
+
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+
+    assert_eq!(result.observation.budget, 0.0);
+    assert!(result.done);
 }
 
 #[test]
@@ -172,6 +210,7 @@ fn invalid_action_does_not_advance_the_environment() {
     env.metrics = metrics;
 
     let edges = env.world.network.edges().to_vec();
+    let budget = env.budget;
 
     assert_eq!(
         env.step(Action::AddEdge {
@@ -184,5 +223,6 @@ fn invalid_action_does_not_advance_the_environment() {
     );
     assert_eq!(env.world.network.edges(), edges);
     assert_eq!(env.metrics, metrics);
+    assert_eq!(env.budget, budget);
     assert_eq!(env.step_count, 0);
 }
