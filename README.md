@@ -52,6 +52,27 @@ cargo check --all
 cargo test --all
 ```
 
+## Usage
+
+```rust
+use urbanflow::env::Env;
+use urbanflow::metrics::Metrics;
+use urbanflow::world::toy_city;
+
+fn main() {
+    let mut env = Env {
+        world: toy_city(),
+        demands: Vec::new(),
+        metrics: Metrics::default(),
+        budget: 0.0,
+        step_count: 0,
+        max_steps: 100,
+    };
+
+    env.reset();
+}
+```
+
 ## Development
 
 Run the same core checks used in CI before submitting changes:
