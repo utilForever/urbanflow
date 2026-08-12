@@ -1,8 +1,8 @@
 use crate::action::Action;
 use crate::demand::Demand;
 use crate::metrics::Metrics;
-use crate::network::ConnectivityIndex;
 use crate::observation::Observation;
+use crate::simulation::tick;
 use crate::step_result::StepResult;
 use crate::world::{AddEdgeError, NodeId, World, toy_city};
 
@@ -63,8 +63,8 @@ impl Env {
         }
 
         let Action::AddEdge { from, to, kind } = action;
-        let total_demand = self
-            .demands
+        // Validate before mutating the environment so overflow remains atomic.
+        self.demands
             .iter()
             .try_fold(0_u64, |total, demand| {
                 total.checked_add(u64::from(demand.amount))
@@ -79,21 +79,7 @@ impl Env {
         self.budget -= CONSTRUCTION_COST;
         self.step_count = next_step_count;
 
-        let connectivity = ConnectivityIndex::from_network(&self.world.network);
-        let served = self
-            .demands
-            .iter()
-            .filter(|demand| connectivity.can_serve(demand))
-            .map(|demand| u64::from(demand.amount))
-            .sum();
-        let unserved = total_demand - served;
-
-        self.metrics = Metrics::new(
-            served,
-            unserved,
-            0.0,
-            self.world.network.edges().len() as f64,
-        );
+        self.metrics = tick(&self.world.network, &self.demands);
 
         let reward = reward(self.metrics);
 
