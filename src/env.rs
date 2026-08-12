@@ -63,8 +63,8 @@ impl Env {
         }
 
         let Action::AddEdge { from, to, kind } = action;
-        let total_demand = self
-            .demands
+        // Validate before mutating the environment so overflow remains atomic.
+        self.demands
             .iter()
             .try_fold(0_u64, |total, demand| {
                 total.checked_add(u64::from(demand.amount))
@@ -79,7 +79,7 @@ impl Env {
         self.budget -= CONSTRUCTION_COST;
         self.step_count = next_step_count;
 
-        self.metrics = tick(&self.world.network, &self.demands, total_demand);
+        self.metrics = tick(&self.world.network, &self.demands);
 
         let reward = reward(self.metrics);
 

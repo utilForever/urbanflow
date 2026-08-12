@@ -3,7 +3,13 @@ use crate::metrics::Metrics;
 use crate::network::ConnectivityIndex;
 use crate::world::Network;
 
-pub(crate) fn tick(network: &Network, demands: &[Demand], total_demand: u64) -> Metrics {
+pub(crate) fn tick(network: &Network, demands: &[Demand]) -> Metrics {
+    let total_demand = demands
+        .iter()
+        .try_fold(0_u64, |total, demand| {
+            total.checked_add(u64::from(demand.amount))
+        })
+        .expect("total demand exceeds metric capacity");
     let connectivity = ConnectivityIndex::from_network(network);
     let served = demands
         .iter()
@@ -42,7 +48,7 @@ mod tests {
         ];
         let expected = Metrics::new(18, 5, 0.0, 2.0);
 
-        assert_eq!(tick(&network, &demands, 23), expected);
-        assert_eq!(tick(&network, &demands, 23), expected);
+        assert_eq!(tick(&network, &demands), expected);
+        assert_eq!(tick(&network, &demands), expected);
     }
 }
