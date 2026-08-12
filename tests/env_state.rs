@@ -136,6 +136,28 @@ fn step_simulates_reachable_demand() {
 }
 
 #[test]
+fn useful_add_edge_improves_reward_over_disconnected_baseline() {
+    let mut baseline_env = reset_env();
+    let baseline = baseline_env
+        .step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(0),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+    let mut improved_env = reset_env();
+    let improved = improved_env
+        .step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+
+    assert!(improved.reward > baseline.reward);
+}
+
+#[test]
 fn step_finishes_at_max_steps() {
     let mut env = reset_env();
     env.max_steps = 1;
