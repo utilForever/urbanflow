@@ -1,5 +1,3 @@
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use urbanflow::action::Action;
 use urbanflow::demand::Demand;
 use urbanflow::env::Env;
@@ -18,6 +16,27 @@ fn reset_env() -> Env {
     };
     env.reset();
     env
+}
+
+fn assert_terminal_step_does_not_mutate(mut env: Env) {
+    let edges = env.world.network.edges().to_vec();
+    let metrics = env.metrics;
+    let budget = env.budget;
+    let step_count = env.step_count;
+
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+    assert!(result.done);
+    assert_eq!(result.reward, 0.0);
+    assert_eq!(env.world.network.edges(), edges);
+    assert_eq!(env.metrics, metrics);
+    assert_eq!(env.budget, budget);
+    assert_eq!(env.step_count, step_count);
 }
 
 #[test]
@@ -150,6 +169,22 @@ fn step_finishes_when_budget_cannot_cover_another_edge() {
 }
 
 #[test]
+fn step_does_not_mutate_when_budget_is_insufficient() {
+    let mut env = reset_env();
+    env.budget = 0.5;
+
+    assert_terminal_step_does_not_mutate(env);
+}
+
+#[test]
+fn step_does_not_mutate_when_max_steps_is_zero() {
+    let mut env = reset_env();
+    env.max_steps = 0;
+
+    assert_terminal_step_does_not_mutate(env);
+}
+
+#[test]
 fn step_penalizes_unserved_demand() {
     let mut env = reset_env();
 
@@ -182,25 +217,6 @@ fn step_preserves_large_demand_totals() {
 
     assert_eq!(result.metrics.served_demand, served);
     assert_eq!(result.reward, served as f64 - 3.0);
-}
-
-#[test]
-fn step_count_overflow_does_not_mutate_the_network() {
-    let mut env = reset_env();
-    env.step_count = usize::MAX;
-
-    let edges = env.world.network.edges().to_vec();
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let _ = env.step(Action::AddEdge {
-            from: NodeId(1),
-            to: NodeId(2),
-            kind: EdgeKind::Road,
-        });
-    }));
-
-    assert!(result.is_err());
-    assert_eq!(env.world.network.edges(), edges);
-    assert_eq!(env.step_count, usize::MAX);
 }
 
 #[test]

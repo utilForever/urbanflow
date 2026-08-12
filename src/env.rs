@@ -24,6 +24,10 @@ fn reward(metrics: Metrics) -> f64 {
 }
 
 impl Env {
+    fn is_done(&self) -> bool {
+        self.step_count >= self.max_steps || self.budget < CONSTRUCTION_COST
+    }
+
     fn observation(&self) -> Observation {
         Observation {
             nodes: self.world.nodes.map(|node| node.id),
@@ -49,6 +53,15 @@ impl Env {
     }
 
     pub fn step(&mut self, action: Action) -> Result<StepResult, AddEdgeError> {
+        if self.is_done() {
+            return Ok(StepResult {
+                observation: self.observation(),
+                reward: 0.0,
+                done: true,
+                metrics: self.metrics,
+            });
+        }
+
         let Action::AddEdge { from, to, kind } = action;
         let total_demand = self
             .demands
@@ -87,7 +100,7 @@ impl Env {
         Ok(StepResult {
             observation: self.observation(),
             reward,
-            done: self.step_count >= self.max_steps || self.budget < CONSTRUCTION_COST,
+            done: self.is_done(),
             metrics: self.metrics,
         })
     }
