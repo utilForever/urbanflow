@@ -52,6 +52,38 @@ cargo check --all
 cargo test --all
 ```
 
+## Usage
+
+```rust
+use urbanflow::action::Action;
+use urbanflow::env::Env;
+use urbanflow::metrics::Metrics;
+use urbanflow::world::{AddEdgeError, EdgeKind, NodeId, toy_city};
+
+fn main() -> Result<(), AddEdgeError> {
+    let mut env = Env {
+        world: toy_city(),
+        demands: Vec::new(),
+        metrics: Metrics::default(),
+        budget: 0.0,
+        step_count: 0,
+        max_steps: 100,
+    };
+
+    env.reset();
+
+    let result = env.step(Action::AddEdge {
+        from: NodeId(1),
+        to: NodeId(2),
+        kind: EdgeKind::Road,
+    })?;
+
+    println!("{result:#?}");
+
+    Ok(())
+}
+```
+
 ## Development
 
 Run the same core checks used in CI before submitting changes:
