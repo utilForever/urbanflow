@@ -23,6 +23,22 @@ pub enum EdgeKind {
     Rail,
 }
 
+impl EdgeKind {
+    pub const fn capacity(self) -> u32 {
+        match self {
+            Self::Road => 10,
+            Self::Rail => 20,
+        }
+    }
+
+    pub const fn construction_cost(self) -> f64 {
+        match self {
+            Self::Road => 1.0,
+            Self::Rail => 2.0,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Network {
     edges: Vec<Edge>,
@@ -109,6 +125,14 @@ mod tests {
         };
 
         assert_eq!(edge.from, node.id);
+    }
+
+    #[test]
+    fn edge_kinds_expose_capacity_and_construction_cost() {
+        assert_eq!(EdgeKind::Road.capacity(), 10);
+        assert_eq!(EdgeKind::Rail.capacity(), 20);
+        assert_eq!(EdgeKind::Road.construction_cost(), 1.0);
+        assert_eq!(EdgeKind::Rail.construction_cost(), 2.0);
     }
 
     #[test]
