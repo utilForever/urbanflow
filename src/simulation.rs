@@ -90,4 +90,23 @@ mod tests {
             (10, vec![10, 10])
         );
     }
+
+    #[test]
+    fn demands_consume_shared_capacity_in_stored_order() {
+        let mut network = Network::new();
+        network
+            .add_edge(NodeId(0), NodeId(1), EdgeKind::Road)
+            .unwrap();
+        network
+            .add_edge(NodeId(1), NodeId(2), EdgeKind::Rail)
+            .unwrap();
+        network
+            .add_edge(NodeId(1), NodeId(3), EdgeKind::Rail)
+            .unwrap();
+        let first = Demand::new(NodeId(0), NodeId(2), 7);
+        let second = Demand::new(NodeId(0), NodeId(3), 7);
+
+        assert_eq!(allocate(&network, &[first, second]), (10, vec![10, 7, 3]));
+        assert_eq!(allocate(&network, &[second, first]), (10, vec![10, 3, 7]));
+    }
 }
