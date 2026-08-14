@@ -237,9 +237,9 @@ fn step_preserves_large_demand_totals() {
         .unwrap();
     let total = u64::from(u32::MAX) * 2;
 
-    assert_eq!(result.metrics.served_demand, 20);
-    assert_eq!(result.metrics.unserved_demand, total - 20);
-    assert_eq!(result.reward, 40.0 - total as f64 - 3.0);
+    assert_eq!(result.metrics.served_demand, 10);
+    assert_eq!(result.metrics.unserved_demand, total - 10);
+    assert_eq!(result.reward, 20.0 - total as f64 - 3.0);
 }
 
 #[test]

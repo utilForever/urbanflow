@@ -14,15 +14,17 @@ fn allocate(network: &Network, demands: &[Demand]) -> (u64, Vec<u64>) {
         };
         let amount = path
             .iter()
-            .map(|edge| network.edges()[edge.0].kind.capacity())
+            .map(|edge| {
+                u64::from(network.edges()[edge.0].kind.capacity()).saturating_sub(loads[edge.0])
+            })
             .min()
-            .unwrap_or(demand.amount)
-            .min(demand.amount);
+            .unwrap_or(u64::from(demand.amount))
+            .min(u64::from(demand.amount));
 
-        served += u64::from(amount);
+        served += amount;
 
         for edge in path {
-            loads[edge.0] += u64::from(amount);
+            loads[edge.0] += amount;
         }
     }
 
