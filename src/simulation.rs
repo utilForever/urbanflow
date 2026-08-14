@@ -13,8 +13,16 @@ pub(crate) fn tick(network: &Network, demands: &[Demand]) -> Metrics {
     let connectivity = ConnectivityIndex::from_network(network);
     let served = demands
         .iter()
-        .filter(|demand| connectivity.can_serve(demand))
-        .map(|demand| u64::from(demand.amount))
+        .filter_map(|demand| {
+            let path = connectivity.path(demand.origin, demand.destination)?;
+            let amount = path
+                .iter()
+                .map(|edge| network.edges()[edge.0].kind.capacity())
+                .min()
+                .unwrap_or(demand.amount)
+                .min(demand.amount);
+            Some(u64::from(amount))
+        })
         .sum();
 
     Metrics::new(
