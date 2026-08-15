@@ -45,13 +45,13 @@ pub(crate) fn tick(network: &Network, demands: &[Demand]) -> Metrics {
         .zip(loads)
         .map(|(edge, load)| load as f64 / f64::from(edge.kind.capacity()))
         .fold(0.0, f64::max);
+    let cost = network
+        .edges()
+        .iter()
+        .map(|edge| edge.kind.construction_cost())
+        .sum();
 
-    Metrics::new(
-        served,
-        total_demand - served,
-        congestion,
-        network.edges().len() as f64,
-    )
+    Metrics::new(served, total_demand - served, congestion, cost)
 }
 
 #[cfg(test)]
@@ -75,7 +75,7 @@ mod tests {
             Demand::new(NodeId(1), NodeId(0), 5),
             Demand::new(NodeId(2), NodeId(3), 11),
         ];
-        let expected = Metrics::new(18, 5, 0.7, 2.0);
+        let expected = Metrics::new(18, 5, 0.7, 3.0);
 
         assert_eq!(tick(&network, &demands), expected);
         assert_eq!(tick(&network, &demands), expected);
