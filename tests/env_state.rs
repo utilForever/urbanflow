@@ -3,7 +3,9 @@ use urbanflow::demand::Demand;
 use urbanflow::env::{Env, StepError};
 use urbanflow::metrics::Metrics;
 use urbanflow::observation::Observation;
-use urbanflow::world::{AddEdgeError, Edge, EdgeId, EdgeKind, NodeId, ToyCity, World, toy_city};
+use urbanflow::world::{
+    AddEdgeError, Edge, EdgeId, EdgeKind, Network, NodeId, ToyCity, World, toy_city,
+};
 
 fn reset_env() -> Env {
     let mut env = Env {
@@ -191,6 +193,35 @@ fn step_finishes_when_budget_cannot_cover_another_edge() {
         .unwrap();
 
     assert_eq!(result.observation.budget, 0.0);
+    assert!(result.done);
+}
+
+#[test]
+fn step_finishes_when_only_unaffordable_valid_edges_remain() {
+    let mut env = reset_env();
+    let nodes = toy_city().nodes;
+    let mut network = Network::new();
+
+    for from in nodes {
+        for to in nodes {
+            if from != to && (from.id, to.id) != (NodeId(1), NodeId(2)) {
+                network.add_edge(from.id, to.id, EdgeKind::Road).unwrap();
+            }
+        }
+    }
+
+    env.world = World { nodes, network };
+    env.budget = 2.0;
+
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+
+    assert_eq!(result.observation.budget, 1.0);
     assert!(result.done);
 }
 
