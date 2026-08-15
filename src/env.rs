@@ -24,8 +24,6 @@ pub enum StepError {
     EpisodeComplete,
 }
 
-const MIN_CONSTRUCTION_COST: f64 = EdgeKind::Road.construction_cost();
-
 fn reward(metrics: Metrics) -> f64 {
     let demand = i128::from(metrics.served_demand) - i128::from(metrics.unserved_demand);
     demand as f64 - metrics.congestion - metrics.cost
@@ -33,7 +31,19 @@ fn reward(metrics: Metrics) -> f64 {
 
 impl Env {
     fn is_done(&self) -> bool {
-        self.step_count >= self.max_steps || self.budget < MIN_CONSTRUCTION_COST
+        self.step_count >= self.max_steps
+            || !self.world.nodes.iter().any(|from| {
+                self.world.nodes.iter().any(|to| {
+                    [EdgeKind::Road, EdgeKind::Rail].into_iter().any(|kind| {
+                        self.budget >= kind.construction_cost()
+                            && self
+                                .world
+                                .network
+                                .validate_add_edge(from.id, to.id, kind)
+                                .is_ok()
+                    })
+                })
+            })
     }
 
     fn observation(&self) -> Observation {
