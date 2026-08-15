@@ -76,7 +76,7 @@ impl Env {
             .expect("step count exceeds environment capacity");
 
         self.world.network.add_edge(from, to, kind)?;
-        self.budget -= CONSTRUCTION_COST;
+        self.budget -= kind.construction_cost();
         self.step_count = next_step_count;
 
         self.metrics = tick(&self.world.network, &self.demands);

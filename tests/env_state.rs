@@ -218,6 +218,7 @@ fn step_penalizes_unserved_demand() {
         })
         .unwrap();
 
+    assert_eq!(result.observation.budget, 98.0);
     assert_eq!(result.metrics, Metrics::new(0, 10, 0.0, 5.0));
     assert_eq!(env.metrics, result.metrics);
     assert_eq!(result.reward, -15.0);
