@@ -56,11 +56,11 @@ cargo test --all
 
 ```rust
 use urbanflow::action::Action;
-use urbanflow::env::Env;
+use urbanflow::env::{Env, StepError};
 use urbanflow::metrics::Metrics;
-use urbanflow::world::{AddEdgeError, EdgeKind, NodeId, toy_city};
+use urbanflow::world::{EdgeKind, NodeId, toy_city};
 
-fn main() -> Result<(), AddEdgeError> {
+fn main() -> Result<(), StepError> {
     let mut env = Env {
         world: toy_city(),
         demands: Vec::new(),
