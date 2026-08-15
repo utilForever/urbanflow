@@ -38,12 +38,18 @@ pub(crate) fn tick(network: &Network, demands: &[Demand]) -> Metrics {
             total.checked_add(u64::from(demand.amount))
         })
         .expect("total demand exceeds metric capacity");
-    let (served, _) = allocate(network, demands);
+    let (served, loads) = allocate(network, demands);
+    let congestion = network
+        .edges()
+        .iter()
+        .zip(loads)
+        .map(|(edge, load)| load as f64 / f64::from(edge.kind.capacity()))
+        .fold(0.0, f64::max);
 
     Metrics::new(
         served,
         total_demand - served,
-        0.0,
+        congestion,
         network.edges().len() as f64,
     )
 }
