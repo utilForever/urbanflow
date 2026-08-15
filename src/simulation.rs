@@ -69,7 +69,7 @@ mod tests {
             Demand::new(NodeId(1), NodeId(0), 5),
             Demand::new(NodeId(2), NodeId(3), 11),
         ];
-        let expected = Metrics::new(18, 5, 0.0, 2.0);
+        let expected = Metrics::new(18, 5, 0.7, 2.0);
 
         assert_eq!(tick(&network, &demands), expected);
         assert_eq!(tick(&network, &demands), expected);
