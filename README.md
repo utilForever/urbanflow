@@ -101,6 +101,15 @@ At each tick, demands are processed in stored order, so earlier demands consume 
 served demand - unserved demand - congestion - cost
 ```
 
+For example, start with `toy_city()`, a budget of `100.0`, and demand `1 -> 2` with amount `15`. Adding a direct Road or Rail produces:
+
+| Added edge | Served | Unserved | Congestion | Cost | Budget | Reward |
+| ---------- | -----: | -------: | ---------: | ---: | -----: | -----: |
+| Road       |     10 |        5 |        1.0 |  4.0 |   99.0 |    0.0 |
+| Rail       |     15 |        0 |       0.75 |  5.0 |   98.0 |   9.25 |
+
+Rail costs more, but its higher capacity serves all demand with lower congestion and a higher reward.
+
 ## Development
 
 Run the same core checks used in CI before submitting changes:
