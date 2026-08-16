@@ -84,6 +84,15 @@ fn main() -> Result<(), StepError> {
 }
 ```
 
+## Simulation and rewards
+
+Each edge kind has fixed capacity and construction cost:
+
+| Edge kind | Capacity | Construction cost |
+| --------- | -------: | ----------------: |
+| Road      |       10 |               1.0 |
+| Rail      |       20 |               2.0 |
+
 ## Development
 
 Run the same core checks used in CI before submitting changes:
