@@ -93,6 +93,14 @@ Each edge kind has fixed capacity and construction cost:
 | Road      |       10 |               1.0 |
 | Rail      |       20 |               2.0 |
 
+At each tick, demands are processed in stored order, so earlier demands consume shared capacity first. Each reachable demand follows the first shortest directed path; equal-hop paths follow edge insertion order. The served amount is limited by both the demand amount and the smallest remaining capacity along that path. Unreachable and excess demand is unserved.
+
+`congestion` is the maximum `edge load / edge capacity` across the network, or `0` when the network has no edges. `cost` is the sum of every edge's construction cost. The reward is:
+
+```text
+served demand - unserved demand - congestion - cost
+```
+
 ## Development
 
 Run the same core checks used in CI before submitting changes:
