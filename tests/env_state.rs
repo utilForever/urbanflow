@@ -129,9 +129,9 @@ fn step_simulates_reachable_demand() {
     assert_eq!(env.step_count, 1);
     assert_eq!(result.observation.step_count, 1);
     assert_eq!(result.observation.budget, 99.0);
-    assert_eq!(result.metrics, Metrics::new(10, 0, 0.0, 3.0));
+    assert_eq!(result.metrics, Metrics::new(10, 0, 1.0, 3.0));
     assert_eq!(env.metrics, result.metrics);
-    assert_eq!(result.reward, 7.0);
+    assert_eq!(result.reward, 6.0);
     assert!(!result.done);
 }
 
@@ -239,7 +239,7 @@ fn step_preserves_large_demand_totals() {
 
     assert_eq!(result.metrics.served_demand, 10);
     assert_eq!(result.metrics.unserved_demand, total - 10);
-    assert_eq!(result.reward, 20.0 - total as f64 - 3.0);
+    assert_eq!(result.reward, 20.0 - total as f64 - 1.0 - 3.0);
 }
 
 #[test]
