@@ -159,7 +159,11 @@ fn road_and_rail_produce_distinct_multimodal_trade_offs() {
     let rail = run(EdgeKind::Rail);
 
     assert_eq!(road.metrics, Metrics::new(10, 5, 1.0, 4.0));
+    assert_eq!(road.observation.budget, 99.0);
+    assert_eq!(road.reward, 0.0);
     assert_eq!(rail.metrics, Metrics::new(15, 0, 0.75, 5.0));
+    assert_eq!(rail.observation.budget, 98.0);
+    assert_eq!(rail.reward, 9.25);
 }
 
 #[test]
