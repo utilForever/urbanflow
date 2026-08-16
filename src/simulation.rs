@@ -14,15 +14,17 @@ fn allocate(network: &Network, demands: &[Demand]) -> (u64, Vec<u64>) {
         };
         let amount = path
             .iter()
-            .map(|edge| network.edges()[edge.0].kind.capacity())
+            .map(|edge| {
+                u64::from(network.edges()[edge.0].kind.capacity()).saturating_sub(loads[edge.0])
+            })
             .min()
-            .unwrap_or(demand.amount)
-            .min(demand.amount);
+            .unwrap_or(u64::from(demand.amount))
+            .min(u64::from(demand.amount));
 
-        served += u64::from(amount);
+        served += amount;
 
         for edge in path {
-            loads[edge.0] += u64::from(amount);
+            loads[edge.0] += amount;
         }
     }
 
@@ -87,5 +89,24 @@ mod tests {
             allocate(&network, &[Demand::new(NodeId(0), NodeId(2), 15)]),
             (10, vec![10, 10])
         );
+    }
+
+    #[test]
+    fn demands_consume_shared_capacity_in_stored_order() {
+        let mut network = Network::new();
+        network
+            .add_edge(NodeId(0), NodeId(1), EdgeKind::Road)
+            .unwrap();
+        network
+            .add_edge(NodeId(1), NodeId(2), EdgeKind::Rail)
+            .unwrap();
+        network
+            .add_edge(NodeId(1), NodeId(3), EdgeKind::Rail)
+            .unwrap();
+        let first = Demand::new(NodeId(0), NodeId(2), 7);
+        let second = Demand::new(NodeId(0), NodeId(3), 7);
+
+        assert_eq!(allocate(&network, &[first, second]), (10, vec![10, 7, 3]));
+        assert_eq!(allocate(&network, &[second, first]), (10, vec![10, 3, 7]));
     }
 }
