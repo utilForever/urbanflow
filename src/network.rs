@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use crate::demand::Demand;
-use crate::world::{Network, NodeId};
+use crate::world::{EdgeId, Network, NodeId};
 
 /// A directed reachability index derived from a [`Network`].
 ///
@@ -28,9 +28,9 @@ pub struct ConnectivityIndex {
     /// Interned position of each node. Looked up by key only, never iterated,
     /// so traversal order stays deterministic.
     position_of: HashMap<NodeId, usize>,
-    /// `successors[p]` holds the interned positions reachable from position `p`
-    /// in one forward step.
-    successors: Vec<Vec<usize>>,
+    /// `successors[p]` holds each interned successor and the edge used to reach
+    /// it, in network insertion order.
+    successors: Vec<Vec<(usize, EdgeId)>>,
 }
 
 /// Return the interned position of `node`, assigning the next one if this is
@@ -38,7 +38,7 @@ pub struct ConnectivityIndex {
 fn intern(
     node: NodeId,
     position_of: &mut HashMap<NodeId, usize>,
-    successors: &mut Vec<Vec<usize>>,
+    successors: &mut Vec<Vec<(usize, EdgeId)>>,
 ) -> usize {
     *position_of.entry(node).or_insert_with(|| {
         successors.push(Vec::new());
@@ -51,12 +51,12 @@ impl ConnectivityIndex {
     /// direction only.
     pub fn from_network(network: &Network) -> Self {
         let mut position_of = HashMap::new();
-        let mut successors: Vec<Vec<usize>> = Vec::new();
+        let mut successors: Vec<Vec<(usize, EdgeId)>> = Vec::new();
 
         for edge in network.edges() {
             let from = intern(edge.from, &mut position_of, &mut successors);
             let to = intern(edge.to, &mut position_of, &mut successors);
-            successors[from].push(to);
+            successors[from].push((to, edge.id));
         }
 
         Self {
@@ -71,39 +71,63 @@ impl ConnectivityIndex {
         self.successors.len()
     }
 
+    /// Return the first shortest path from `origin` to `destination`.
+    ///
+    /// Equal-hop paths are resolved by network edge insertion order. A known
+    /// node has an empty path to itself; unknown or unreachable nodes return
+    /// `None`.
+    pub fn path(&self, origin: NodeId, destination: NodeId) -> Option<Vec<EdgeId>> {
+        let &origin = self.position_of.get(&origin)?;
+        let &destination = self.position_of.get(&destination)?;
+
+        if origin == destination {
+            return Some(Vec::new());
+        }
+
+        let mut visited = vec![false; self.successors.len()];
+        let mut predecessors = vec![None; self.successors.len()];
+        let mut queue = VecDeque::new();
+
+        visited[origin] = true;
+        queue.push_back(origin);
+
+        while let Some(node) = queue.pop_front() {
+            for &(next, edge) in &self.successors[node] {
+                if visited[next] {
+                    continue;
+                }
+
+                visited[next] = true;
+                predecessors[next] = Some((node, edge));
+
+                if next == destination {
+                    let mut path = Vec::new();
+                    let mut current = destination;
+
+                    while current != origin {
+                        let (previous, edge) = predecessors[current]?;
+                        path.push(edge);
+                        current = previous;
+                    }
+
+                    path.reverse();
+                    return Some(path);
+                }
+
+                queue.push_back(next);
+            }
+        }
+
+        None
+    }
+
     /// Whether `destination` can be reached from `origin` by following edges in
     /// their forward direction.
     ///
     /// A node always reaches itself (as long as an edge mentions it); nodes the
     /// network never mentions are not reachable, whatever their id.
     pub fn is_reachable(&self, origin: NodeId, destination: NodeId) -> bool {
-        let Some(&origin) = self.position_of.get(&origin) else {
-            return false;
-        };
-        let Some(&destination) = self.position_of.get(&destination) else {
-            return false;
-        };
-        if origin == destination {
-            return true;
-        }
-
-        let mut visited = vec![false; self.successors.len()];
-        let mut queue = VecDeque::new();
-        visited[origin] = true;
-        queue.push_back(origin);
-
-        while let Some(node) = queue.pop_front() {
-            for &next in &self.successors[node] {
-                if next == destination {
-                    return true;
-                }
-                if !visited[next] {
-                    visited[next] = true;
-                    queue.push_back(next);
-                }
-            }
-        }
-        false
+        self.path(origin, destination).is_some()
     }
 
     /// Whether the network can serve `demand`, i.e. a directed path runs from
@@ -135,6 +159,42 @@ mod tests {
     #[test]
     fn test_multi_hop_is_reachable() {
         assert!(line_index().is_reachable(NodeId(0), NodeId(3)));
+    }
+
+    #[test]
+    fn test_path_returns_ordered_edge_ids() {
+        let mut net = Network::new();
+        let first = net.add_edge(NodeId(0), NodeId(1), EdgeKind::Road).unwrap();
+        let second = net.add_edge(NodeId(1), NodeId(2), EdgeKind::Rail).unwrap();
+
+        assert_eq!(
+            ConnectivityIndex::from_network(&net).path(NodeId(0), NodeId(2)),
+            Some(vec![first, second])
+        );
+    }
+
+    #[test]
+    fn test_path_breaks_equal_hop_ties_by_edge_insertion_order() {
+        let mut net = Network::new();
+        let first_route_start = net.add_edge(NodeId(0), NodeId(2), EdgeKind::Road).unwrap();
+        net.add_edge(NodeId(0), NodeId(1), EdgeKind::Road).unwrap();
+        let first_route_end = net.add_edge(NodeId(2), NodeId(3), EdgeKind::Rail).unwrap();
+        net.add_edge(NodeId(1), NodeId(3), EdgeKind::Rail).unwrap();
+
+        assert_eq!(
+            ConnectivityIndex::from_network(&net).path(NodeId(0), NodeId(3)),
+            Some(vec![first_route_start, first_route_end])
+        );
+    }
+
+    #[test]
+    fn test_path_distinguishes_empty_path_from_no_path() {
+        let idx = line_index();
+
+        assert_eq!(idx.path(NodeId(2), NodeId(2)), Some(Vec::new()));
+        assert_eq!(idx.path(NodeId(3), NodeId(0)), None);
+        assert_eq!(idx.path(NodeId(0), NodeId(99)), None);
+        assert_eq!(idx.path(NodeId(99), NodeId(99)), None);
     }
 
     #[test]
