@@ -84,6 +84,32 @@ fn main() -> Result<(), StepError> {
 }
 ```
 
+## Simulation and rewards
+
+Each edge kind has fixed capacity and construction cost:
+
+| Edge kind | Capacity | Construction cost |
+| --------- | -------: | ----------------: |
+| Road      |       10 |               1.0 |
+| Rail      |       20 |               2.0 |
+
+At each tick, demands are processed in stored order, so earlier demands consume shared capacity first. Each reachable demand follows the first shortest directed path; equal-hop paths follow edge insertion order. The served amount is limited by both the demand amount and the smallest remaining capacity along that path. Unreachable and excess demand is unserved.
+
+`congestion` is the maximum `edge load / edge capacity` across the network, or `0` when the network has no edges. `cost` is the sum of every edge's construction cost. The reward is:
+
+```text
+served demand - unserved demand - congestion - cost
+```
+
+For example, start with `toy_city()`, a budget of `100.0`, and demand `1 -> 2` with amount `15`. Adding a direct Road or Rail produces:
+
+| Added edge | Served | Unserved | Congestion | Cost | Budget | Reward |
+| ---------- | -----: | -------: | ---------: | ---: | -----: | -----: |
+| Road       |     10 |        5 |        1.0 |  4.0 |   99.0 |    0.0 |
+| Rail       |     15 |        0 |       0.75 |  5.0 |   98.0 |   9.25 |
+
+Rail costs more, but its higher capacity serves all demand with lower congestion and a higher reward.
+
 ## Development
 
 Run the same core checks used in CI before submitting changes:
