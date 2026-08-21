@@ -142,6 +142,31 @@ fn step_simulates_reachable_demand() {
 }
 
 #[test]
+fn road_and_rail_produce_distinct_multimodal_trade_offs() {
+    let run = |kind| {
+        let mut env = reset_env();
+        env.demands = vec![Demand::new(NodeId(1), NodeId(2), 15)];
+
+        env.step(Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind,
+        })
+        .unwrap()
+    };
+
+    let road = run(EdgeKind::Road);
+    let rail = run(EdgeKind::Rail);
+
+    assert_eq!(road.metrics, Metrics::new(10, 5, 1.0, 4.0));
+    assert_eq!(road.observation.budget, 99.0);
+    assert_eq!(road.reward, 0.0);
+    assert_eq!(rail.metrics, Metrics::new(15, 0, 0.75, 5.0));
+    assert_eq!(rail.observation.budget, 98.0);
+    assert_eq!(rail.reward, 9.25);
+}
+
+#[test]
 fn useful_add_edge_improves_reward_over_disconnected_baseline() {
     let mut baseline_env = reset_env();
     let baseline = baseline_env
