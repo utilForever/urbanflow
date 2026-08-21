@@ -67,12 +67,12 @@ impl Network {
         &self.edges
     }
 
-    pub fn add_edge(
-        &mut self,
+    pub(crate) fn validate_add_edge(
+        &self,
         from: NodeId,
         to: NodeId,
         kind: EdgeKind,
-    ) -> Result<EdgeId, AddEdgeError> {
+    ) -> Result<(), AddEdgeError> {
         if from == to {
             return Err(AddEdgeError::SelfConnection);
         }
@@ -84,6 +84,17 @@ impl Network {
         {
             return Err(AddEdgeError::DuplicateEdge);
         }
+
+        Ok(())
+    }
+
+    pub fn add_edge(
+        &mut self,
+        from: NodeId,
+        to: NodeId,
+        kind: EdgeKind,
+    ) -> Result<EdgeId, AddEdgeError> {
+        self.validate_add_edge(from, to, kind)?;
 
         let id = EdgeId(self.edges.len());
         self.edges.push(Edge { id, from, to, kind });

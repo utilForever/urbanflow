@@ -1,6 +1,6 @@
 use urbanflow::action::Action;
 use urbanflow::demand::Demand;
-use urbanflow::env::Env;
+use urbanflow::env::{Env, StepError};
 use urbanflow::metrics::Metrics;
 use urbanflow::observation::Observation;
 use urbanflow::world::{AddEdgeError, Edge, EdgeId, EdgeKind, NodeId, ToyCity, World, toy_city};
@@ -18,25 +18,29 @@ fn reset_env() -> Env {
     env
 }
 
-fn assert_terminal_step_does_not_mutate(mut env: Env) {
+fn assert_rejected_step_does_not_mutate(mut env: Env, action: Action, expected: StepError) {
     let edges = env.world.network.edges().to_vec();
     let metrics = env.metrics;
     let budget = env.budget;
     let step_count = env.step_count;
 
-    let result = env
-        .step(Action::AddEdge {
-            from: NodeId(1),
-            to: NodeId(2),
-            kind: EdgeKind::Road,
-        })
-        .unwrap();
-    assert!(result.done);
-    assert_eq!(result.reward, 0.0);
+    assert_eq!(env.step(action).unwrap_err(), expected);
     assert_eq!(env.world.network.edges(), edges);
     assert_eq!(env.metrics, metrics);
     assert_eq!(env.budget, budget);
     assert_eq!(env.step_count, step_count);
+}
+
+fn assert_episode_complete_step_does_not_mutate(env: Env) {
+    assert_rejected_step_does_not_mutate(
+        env,
+        Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        },
+        StepError::EpisodeComplete,
+    );
 }
 
 #[test]
@@ -191,19 +195,35 @@ fn step_finishes_when_budget_cannot_cover_another_edge() {
 }
 
 #[test]
-fn step_does_not_mutate_when_budget_is_insufficient() {
+fn episode_complete_when_no_edge_is_affordable() {
     let mut env = reset_env();
     env.budget = 0.5;
 
-    assert_terminal_step_does_not_mutate(env);
+    assert_episode_complete_step_does_not_mutate(env);
 }
 
 #[test]
-fn step_does_not_mutate_when_max_steps_is_zero() {
+fn insufficient_budget_for_selected_mode_does_not_advance_the_environment() {
+    let mut env = reset_env();
+    env.budget = 1.0;
+
+    assert_rejected_step_does_not_mutate(
+        env,
+        Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(2),
+            kind: EdgeKind::Rail,
+        },
+        StepError::InsufficientBudget,
+    );
+}
+
+#[test]
+fn episode_complete_when_max_steps_is_zero() {
     let mut env = reset_env();
     env.max_steps = 0;
 
-    assert_terminal_step_does_not_mutate(env);
+    assert_episode_complete_step_does_not_mutate(env);
 }
 
 #[test]
@@ -246,23 +266,45 @@ fn step_preserves_large_demand_totals() {
 #[test]
 fn invalid_action_does_not_advance_the_environment() {
     let mut env = reset_env();
-    let metrics = Metrics::new(4, 6, 0.5, 2.0);
-    env.metrics = metrics;
+    env.metrics = Metrics::new(4, 6, 0.5, 2.0);
 
-    let edges = env.world.network.edges().to_vec();
-    let budget = env.budget;
-
-    assert_eq!(
-        env.step(Action::AddEdge {
+    assert_rejected_step_does_not_mutate(
+        env,
+        Action::AddEdge {
             from: NodeId(0),
             to: NodeId(1),
             kind: EdgeKind::Road,
-        })
-        .unwrap_err(),
-        AddEdgeError::DuplicateEdge
+        },
+        StepError::InvalidEdge(AddEdgeError::DuplicateEdge),
     );
-    assert_eq!(env.world.network.edges(), edges);
-    assert_eq!(env.metrics, metrics);
-    assert_eq!(env.budget, budget);
-    assert_eq!(env.step_count, 0);
+}
+
+#[test]
+fn unknown_node_from_does_not_advance_the_environment() {
+    let env = reset_env();
+
+    assert_rejected_step_does_not_mutate(
+        env,
+        Action::AddEdge {
+            from: NodeId(99),
+            to: NodeId(2),
+            kind: EdgeKind::Road,
+        },
+        StepError::UnknownNode(NodeId(99)),
+    );
+}
+
+#[test]
+fn unknown_node_to_does_not_advance_the_environment() {
+    let env = reset_env();
+
+    assert_rejected_step_does_not_mutate(
+        env,
+        Action::AddEdge {
+            from: NodeId(1),
+            to: NodeId(99),
+            kind: EdgeKind::Road,
+        },
+        StepError::UnknownNode(NodeId(99)),
+    );
 }

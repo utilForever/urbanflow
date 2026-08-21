@@ -4,7 +4,7 @@ use crate::metrics::Metrics;
 use crate::observation::Observation;
 use crate::simulation::tick;
 use crate::step_result::StepResult;
-use crate::world::{AddEdgeError, NodeId, World, toy_city};
+use crate::world::{AddEdgeError, EdgeKind, NodeId, World, toy_city};
 
 #[derive(Debug)]
 pub struct Env {
@@ -16,7 +16,15 @@ pub struct Env {
     pub max_steps: usize,
 }
 
-const CONSTRUCTION_COST: f64 = 1.0;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StepError {
+    InvalidEdge(AddEdgeError),
+    UnknownNode(NodeId),
+    InsufficientBudget,
+    EpisodeComplete,
+}
+
+const MIN_CONSTRUCTION_COST: f64 = EdgeKind::Road.construction_cost();
 
 fn reward(metrics: Metrics) -> f64 {
     let demand = i128::from(metrics.served_demand) - i128::from(metrics.unserved_demand);
@@ -25,7 +33,7 @@ fn reward(metrics: Metrics) -> f64 {
 
 impl Env {
     fn is_done(&self) -> bool {
-        self.step_count >= self.max_steps || self.budget < CONSTRUCTION_COST
+        self.step_count >= self.max_steps || self.budget < MIN_CONSTRUCTION_COST
     }
 
     fn observation(&self) -> Observation {
@@ -52,17 +60,33 @@ impl Env {
         self.observation()
     }
 
-    pub fn step(&mut self, action: Action) -> Result<StepResult, AddEdgeError> {
+    pub fn step(&mut self, action: Action) -> Result<StepResult, StepError> {
         if self.is_done() {
-            return Ok(StepResult {
-                observation: self.observation(),
-                reward: 0.0,
-                done: true,
-                metrics: self.metrics,
-            });
+            return Err(StepError::EpisodeComplete);
         }
 
         let Action::AddEdge { from, to, kind } = action;
+
+        for node in [from, to] {
+            if !self
+                .world
+                .nodes
+                .iter()
+                .any(|candidate| candidate.id == node)
+            {
+                return Err(StepError::UnknownNode(node));
+            }
+        }
+
+        self.world
+            .network
+            .validate_add_edge(from, to, kind)
+            .map_err(StepError::InvalidEdge)?;
+
+        if self.budget < kind.construction_cost() {
+            return Err(StepError::InsufficientBudget);
+        }
+
         // Validate before mutating the environment so overflow remains atomic.
         self.demands
             .iter()
@@ -75,7 +99,10 @@ impl Env {
             .checked_add(1)
             .expect("step count exceeds environment capacity");
 
-        self.world.network.add_edge(from, to, kind)?;
+        self.world
+            .network
+            .add_edge(from, to, kind)
+            .expect("edge was validated before mutation");
         self.budget -= kind.construction_cost();
         self.step_count = next_step_count;
 
