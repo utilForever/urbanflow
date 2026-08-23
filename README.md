@@ -1,6 +1,6 @@
 <p align="center">
   <picture>
-    <img src="https://raw.githubusercontent.com/utilForever/urbanflow/refs/heads/logo/assets/logo.png" width="400"/>
+    <img src="https://raw.githubusercontent.com/utilForever/urbanflow/refs/heads/main/assets/logo.png" width="400"/>
   </picture>
 </p>
 <p align="center">
