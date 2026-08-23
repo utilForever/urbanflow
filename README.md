@@ -4,7 +4,7 @@
   </picture>
 </p>
 <p align="center">
-  <b>A Rust library for a RL environment for building and optimizing multimodal urban transit networks</b>
+  <b>A Rust library for an RL environment for building and optimizing multimodal urban transit networks</b>
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
