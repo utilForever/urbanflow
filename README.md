@@ -1,10 +1,10 @@
 <p align="center">
   <picture>
-    <img src="https://raw.githubusercontent.com/utilForever/urbanflow/refs/heads/logo/assets/logo.png" width="400"/>
+    <img src="https://raw.githubusercontent.com/utilForever/urbanflow/refs/heads/main/assets/logo.png" width="400"/>
   </picture>
 </p>
 <p align="center">
-  <b>A Rust library for a reinforcement learning environment for building and optimizing multimodal urban transit networks</b>
+  <b>A Rust library for an RL environment for building and optimizing multimodal urban transit networks</b>
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
