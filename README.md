@@ -1,6 +1,6 @@
 <p align="center">
   <picture>
-    <img src="https://raw.githubusercontent.com/utilForever/urbanflow/refs/heads/logo/assets/logo.svg" width="400"/>
+    <img src="https://raw.githubusercontent.com/utilForever/urbanflow/refs/heads/logo/assets/logo.png" width="400"/>
   </picture>
 </p>
 <p align="center">
@@ -26,10 +26,21 @@
 
 `urbanflow` provides the foundation for:
 
-- Modeling multimodal urban transit networks with roads, rails, traffic, and passenger demand.
+- Modeling directed road and rail networks with capacity and passenger demand.
 - Keeping simulation and environment logic in a reusable Rust library crate.
 - Supporting future training, evaluation, and integration workflows around reinforcement learning agents.
-- Measuring network behavior through accessibility, congestion, throughput, and service quality metrics.
+- Measuring served and unserved demand, congestion, and network construction cost.
+
+## Project Objectives
+
+The current library is a compact road-and-rail simulation core. As it evolves, `urbanflow` aims to:
+
+- Expand multimodal networks with transit modes such as trams and demand-responsive transit (DRT).
+- Support both macro-level network analysis and micro-level movement and service analysis.
+- Make simulation capabilities available to applications, websites, and other platforms through reusable interfaces.
+- Run large-scale simulations with low latency for reinforcement learning and interactive analysis.
+
+These are project directions, not claims of current feature support. See [Architecture](ARCHITECTURE.md) for the implemented system and planned boundaries, and [AGENTS.md](AGENTS.md) for repository development guidance.
 
 ## Quick Start
 
