@@ -46,7 +46,7 @@ pub struct Network {
 
 #[derive(Debug)]
 pub struct World {
-    pub nodes: [Node; 4],
+    pub nodes: Vec<Node>,
     pub network: Network,
 }
 
@@ -103,7 +103,7 @@ impl Network {
 }
 
 pub fn toy_city() -> ToyCity {
-    let nodes = [
+    let nodes = vec![
         Node { id: NodeId(0) },
         Node { id: NodeId(1) },
         Node { id: NodeId(2) },
@@ -136,6 +136,25 @@ mod tests {
         };
 
         assert_eq!(edge.from, node.id);
+    }
+
+    #[test]
+    fn world_preserves_caller_defined_node_order() {
+        let world = World {
+            nodes: vec![
+                Node {
+                    id: NodeId(usize::MAX),
+                },
+                Node { id: NodeId(7) },
+                Node { id: NodeId(0) },
+            ],
+            network: Network::new(),
+        };
+
+        assert_eq!(
+            world.nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
+            vec![NodeId(usize::MAX), NodeId(7), NodeId(0)]
+        );
     }
 
     #[test]
@@ -174,8 +193,8 @@ mod tests {
         let city = toy_city();
 
         assert_eq!(
-            city.nodes.map(|node| node.id),
-            [NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+            city.nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
+            vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
         );
         assert_eq!(
             city.network.edges(),

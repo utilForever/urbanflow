@@ -4,7 +4,7 @@ use urbanflow::env::{Env, StepError};
 use urbanflow::metrics::Metrics;
 use urbanflow::observation::Observation;
 use urbanflow::world::{
-    AddEdgeError, Edge, EdgeId, EdgeKind, Network, NodeId, ToyCity, World, toy_city,
+    AddEdgeError, Edge, EdgeId, EdgeKind, Network, Node, NodeId, ToyCity, World, toy_city,
 };
 
 fn reset_env() -> Env {
@@ -340,6 +340,40 @@ fn invalid_action_does_not_advance_the_environment() {
         },
         StepError::InvalidEdge(AddEdgeError::DuplicateEdge),
     );
+}
+
+#[test]
+fn variable_size_world_observation_failure_is_atomic() {
+    let metrics = Metrics::new(4, 6, 0.5, 2.0);
+    let mut env = Env {
+        world: World {
+            nodes: vec![
+                Node { id: NodeId(0) },
+                Node { id: NodeId(1) },
+                Node { id: NodeId(2) },
+            ],
+            network: Network::new(),
+        },
+        demands: Vec::new(),
+        metrics,
+        budget: 100.0,
+        step_count: 0,
+        max_steps: 100,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.step(Action::AddEdge {
+            from: NodeId(0),
+            to: NodeId(1),
+            kind: EdgeKind::Road,
+        })
+    }));
+
+    assert!(result.is_err());
+    assert!(env.world.network.edges().is_empty());
+    assert_eq!(env.metrics, metrics);
+    assert_eq!(env.budget, 100.0);
+    assert_eq!(env.step_count, 0);
 }
 
 #[test]
