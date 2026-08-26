@@ -88,7 +88,7 @@ fn reset_restores_the_fixed_initial_state() {
 
     let observation = env.reset();
     let expected_world = toy_city();
-    let nodes = expected_world.nodes.map(|node| node.id);
+    let nodes = [NodeId(0), NodeId(1), NodeId(2), NodeId(3)];
     let edges = expected_world.network.edges().to_vec();
     let demands = vec![Demand::new(NodeId(0), NodeId(3), 10)];
 
@@ -102,7 +102,14 @@ fn reset_restores_the_fixed_initial_state() {
             step_count: 0,
         }
     );
-    assert_eq!(env.world.nodes.map(|node| node.id), nodes);
+    assert_eq!(
+        env.world
+            .nodes
+            .iter()
+            .map(|node| node.id)
+            .collect::<Vec<_>>(),
+        nodes
+    );
     assert_eq!(env.world.network.edges(), edges);
     assert_eq!(env.demands, demands);
     assert_eq!(env.metrics, Metrics::default());
@@ -227,8 +234,8 @@ fn step_finishes_when_only_unaffordable_valid_edges_remain() {
     let nodes = toy_city().nodes;
     let mut network = Network::new();
 
-    for from in nodes {
-        for to in nodes {
+    for from in nodes.iter() {
+        for to in nodes.iter() {
             if from != to && (from.id, to.id) != (NodeId(1), NodeId(2)) {
                 network.add_edge(from.id, to.id, EdgeKind::Road).unwrap();
             }
