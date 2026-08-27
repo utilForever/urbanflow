@@ -72,6 +72,14 @@ impl World {
             }
         }
 
+        for edge in self.network.edges() {
+            for endpoint in [edge.from, edge.to] {
+                if !node_ids.contains(&endpoint) {
+                    return Err(InitError::UnknownEdgeEndpoint(endpoint));
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -196,6 +204,28 @@ mod tests {
             world.validate_topology(),
             Err(crate::env::InitError::DuplicateNode(NodeId(7)))
         );
+    }
+
+    #[test]
+    fn world_topology_rejects_unknown_edge_endpoints() {
+        for (from, to, unknown) in [
+            (NodeId(99), NodeId(1), NodeId(99)),
+            (NodeId(1), NodeId(99), NodeId(99)),
+            (NodeId(98), NodeId(99), NodeId(98)),
+        ] {
+            let mut network = Network::new();
+            network.add_edge(from, to, EdgeKind::Road).unwrap();
+
+            let world = World {
+                nodes: vec![Node { id: NodeId(1) }, Node { id: NodeId(2) }],
+                network,
+            };
+
+            assert_eq!(
+                world.validate_topology(),
+                Err(crate::env::InitError::UnknownEdgeEndpoint(unknown))
+            );
+        }
     }
 
     #[test]
