@@ -46,19 +46,9 @@ impl Env {
             })
     }
 
-    fn observation_nodes(&self) -> [NodeId; 4] {
-        let nodes: [_; 4] = self
-            .world
-            .nodes
-            .as_slice()
-            .try_into()
-            .expect("observations require exactly four world nodes");
-        nodes.map(|node| node.id)
-    }
-
     fn observation(&self) -> Observation {
         Observation {
-            nodes: self.observation_nodes(),
+            nodes: self.world.nodes.iter().map(|node| node.id).collect(),
             edges: self.world.network.edges().to_vec(),
             demands: self.demands.clone(),
             budget: self.budget,
@@ -108,7 +98,6 @@ impl Env {
         }
 
         // Validate before mutating the environment so failed preflight remains atomic.
-        self.observation_nodes();
         self.demands
             .iter()
             .try_fold(0_u64, |total, demand| {

@@ -88,14 +88,14 @@ fn reset_restores_the_fixed_initial_state() {
 
     let observation = env.reset();
     let expected_world = toy_city();
-    let nodes = [NodeId(0), NodeId(1), NodeId(2), NodeId(3)];
+    let nodes = vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3)];
     let edges = expected_world.network.edges().to_vec();
     let demands = vec![Demand::new(NodeId(0), NodeId(3), 10)];
 
     assert_eq!(
         observation,
         Observation {
-            nodes,
+            nodes: nodes.clone(),
             edges: edges.clone(),
             demands: demands.clone(),
             budget: 100.0,
@@ -343,37 +343,36 @@ fn invalid_action_does_not_advance_the_environment() {
 }
 
 #[test]
-fn variable_size_world_observation_failure_is_atomic() {
-    let metrics = Metrics::new(4, 6, 0.5, 2.0);
+fn step_returns_an_owned_variable_size_node_snapshot() {
     let mut env = Env {
         world: World {
             nodes: vec![
-                Node { id: NodeId(0) },
-                Node { id: NodeId(1) },
-                Node { id: NodeId(2) },
+                Node { id: NodeId(7) },
+                Node { id: NodeId(3) },
+                Node { id: NodeId(5) },
             ],
             network: Network::new(),
         },
         demands: Vec::new(),
-        metrics,
+        metrics: Metrics::default(),
         budget: 100.0,
         step_count: 0,
         max_steps: 100,
     };
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        env.step(Action::AddEdge {
-            from: NodeId(0),
-            to: NodeId(1),
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(7),
+            to: NodeId(3),
             kind: EdgeKind::Road,
         })
-    }));
+        .unwrap();
+    env.world.nodes[0].id = NodeId(99);
 
-    assert!(result.is_err());
-    assert!(env.world.network.edges().is_empty());
-    assert_eq!(env.metrics, metrics);
-    assert_eq!(env.budget, 100.0);
-    assert_eq!(env.step_count, 0);
+    assert_eq!(
+        result.observation.nodes.as_slice(),
+        &[NodeId(7), NodeId(3), NodeId(5)]
+    );
 }
 
 #[test]

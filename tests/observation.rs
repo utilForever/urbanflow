@@ -12,7 +12,7 @@ fn observation_is_an_owned_agent_facing_snapshot() {
     };
     let demand = Demand::new(NodeId(0), NodeId(3), 10);
     let observation = Observation {
-        nodes: [NodeId(0), NodeId(1), NodeId(2), NodeId(3)],
+        nodes: vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3)],
         edges: vec![edge],
         demands: vec![demand],
         budget: 100.0,
