@@ -229,6 +229,43 @@ mod tests {
     }
 
     #[test]
+    fn world_topology_preserves_valid_node_and_edge_order() {
+        let mut network = Network::new();
+        network
+            .add_edge(NodeId(usize::MAX), NodeId(7), EdgeKind::Rail)
+            .unwrap();
+        network
+            .add_edge(NodeId(0), NodeId(usize::MAX), EdgeKind::Road)
+            .unwrap();
+
+        let world = World {
+            nodes: vec![
+                Node {
+                    id: NodeId(usize::MAX),
+                },
+                Node { id: NodeId(7) },
+                Node { id: NodeId(0) },
+            ],
+            network,
+        };
+
+        assert_eq!(world.validate_topology(), Ok(()));
+        assert_eq!(
+            world.nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
+            vec![NodeId(usize::MAX), NodeId(7), NodeId(0)]
+        );
+        assert_eq!(
+            world
+                .network
+                .edges()
+                .iter()
+                .map(|edge| edge.id)
+                .collect::<Vec<_>>(),
+            vec![EdgeId(0), EdgeId(1)]
+        );
+    }
+
+    #[test]
     fn edge_kinds_expose_capacity_and_construction_cost() {
         assert_eq!(EdgeKind::Road.capacity(), 10);
         assert_eq!(EdgeKind::Rail.capacity(), 20);
