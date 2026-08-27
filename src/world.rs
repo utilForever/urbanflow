@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+
+use crate::env::InitError;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NodeId(pub usize);
 
@@ -56,6 +60,20 @@ pub type ToyCity = World;
 pub enum AddEdgeError {
     DuplicateEdge,
     SelfConnection,
+}
+
+impl World {
+    pub fn validate_topology(&self) -> Result<(), InitError> {
+        let mut node_ids = HashSet::with_capacity(self.nodes.len());
+
+        for node in self.nodes.iter() {
+            if !node_ids.insert(node.id) {
+                return Err(InitError::DuplicateNode(node.id));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Network {
@@ -154,6 +172,29 @@ mod tests {
         assert_eq!(
             world.nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
             vec![NodeId(usize::MAX), NodeId(7), NodeId(0)]
+        );
+    }
+
+    #[test]
+    fn world_topology_rejects_the_first_duplicate_node() {
+        let mut network = Network::new();
+        network
+            .add_edge(NodeId(99), NodeId(3), EdgeKind::Road)
+            .unwrap();
+
+        let world = World {
+            nodes: vec![
+                Node { id: NodeId(7) },
+                Node { id: NodeId(3) },
+                Node { id: NodeId(7) },
+                Node { id: NodeId(3) },
+            ],
+            network,
+        };
+
+        assert_eq!(
+            world.validate_topology(),
+            Err(crate::env::InitError::DuplicateNode(NodeId(7)))
         );
     }
 
