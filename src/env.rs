@@ -43,7 +43,7 @@ impl Env {
     pub fn validate_inputs(
         world: &World,
         demands: &[Demand],
-        _budget: f64,
+        budget: f64,
     ) -> Result<(), InitError> {
         world.validate_topology()?;
 
@@ -53,6 +53,10 @@ impl Env {
                     return Err(InitError::UnknownDemandEndpoint(endpoint));
                 }
             }
+        }
+
+        if budget < 0.0 || !budget.is_finite() {
+            return Err(InitError::InvalidBudget);
         }
 
         Ok(())

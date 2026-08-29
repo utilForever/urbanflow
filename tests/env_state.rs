@@ -418,6 +418,42 @@ fn initial_inputs_reject_the_first_unknown_demand_endpoint() {
 }
 
 #[test]
+fn initial_inputs_accept_empty_demands_and_zero_budget() {
+    assert_eq!(Env::validate_inputs(&toy_city(), &[], 0.0), Ok(()));
+}
+
+#[test]
+fn initial_inputs_reject_negative_or_non_finite_budget() {
+    let world = toy_city();
+
+    for budget in [
+        -f64::MIN_POSITIVE,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NAN,
+    ] {
+        assert_eq!(
+            Env::validate_inputs(&world, &[], budget),
+            Err(InitError::InvalidBudget)
+        );
+    }
+}
+
+#[test]
+fn initial_inputs_validate_topology_before_demands_and_budget() {
+    let world = World {
+        nodes: vec![Node { id: NodeId(7) }, Node { id: NodeId(7) }],
+        network: Network::new(),
+    };
+    let demands = vec![Demand::new(NodeId(99), NodeId(98), 10)];
+
+    assert_eq!(
+        Env::validate_inputs(&world, &demands, f64::NAN),
+        Err(InitError::DuplicateNode(NodeId(7)))
+    );
+}
+
+#[test]
 fn unknown_node_from_does_not_advance_the_environment() {
     let env = reset_env();
 
