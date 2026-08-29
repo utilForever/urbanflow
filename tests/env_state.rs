@@ -391,6 +391,33 @@ fn initialization_errors_distinguish_invalid_input_sources() {
 }
 
 #[test]
+fn initial_inputs_reject_the_first_unknown_demand_endpoint() {
+    let world = toy_city();
+
+    for (demands, unknown) in [
+        (
+            vec![
+                Demand::new(NodeId(99), NodeId(98), 10),
+                Demand::new(NodeId(97), NodeId(0), 20),
+            ],
+            NodeId(99),
+        ),
+        (
+            vec![
+                Demand::new(NodeId(0), NodeId(99), 10),
+                Demand::new(NodeId(98), NodeId(1), 20),
+            ],
+            NodeId(99),
+        ),
+    ] {
+        assert_eq!(
+            Env::validate_inputs(&world, &demands, 100.0),
+            Err(InitError::UnknownDemandEndpoint(unknown))
+        );
+    }
+}
+
+#[test]
 fn unknown_node_from_does_not_advance_the_environment() {
     let env = reset_env();
 
