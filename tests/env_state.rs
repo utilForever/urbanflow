@@ -423,6 +423,13 @@ fn initial_inputs_accept_empty_demands_and_zero_budget() {
 }
 
 #[test]
+fn initial_inputs_accept_known_demand_and_positive_finite_budget() {
+    let demands = [Demand::new(NodeId(0), NodeId(3), 10)];
+
+    assert_eq!(Env::validate_inputs(&toy_city(), &demands, 100.0), Ok(()));
+}
+
+#[test]
 fn initial_inputs_reject_negative_or_non_finite_budget() {
     let world = toy_city();
 
