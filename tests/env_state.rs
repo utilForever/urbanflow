@@ -70,6 +70,27 @@ fn env_holds_current_state() {
 }
 
 #[test]
+fn explicit_environment_construction_initializes_complete_state() {
+    let demand = Demand::new(NodeId(0), NodeId(3), 10);
+
+    let env = Env::new(toy_city(), vec![demand], 42.0, 7).unwrap();
+
+    assert_eq!(
+        env.world
+            .nodes
+            .iter()
+            .map(|node| node.id)
+            .collect::<Vec<_>>(),
+        vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+    );
+    assert_eq!(env.demands, vec![demand]);
+    assert_eq!(env.metrics, Metrics::default());
+    assert_eq!(env.budget, 42.0);
+    assert_eq!(env.step_count, 0);
+    assert_eq!(env.max_steps, 7);
+}
+
+#[test]
 fn reset_restores_the_fixed_initial_state() {
     let mut world = toy_city();
     world.nodes[0].id = NodeId(99);
