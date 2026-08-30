@@ -48,7 +48,7 @@ Expected errors return before mutation. Overflow checks also run before mutation
 
 - `Action` describes an agent request. The only current action adds a typed directed edge.
 - `Env` owns the current `World`, demands, metrics, budget, step counter, and episode limit. It validates actions, commits successful transitions, calculates reward, and creates agent-facing snapshots.
-- `InitError` declares typed categories for invalid caller-defined inputs separately from `StepError`; initialization validation is not yet connected to a constructor.
+- `Env::new` validates caller-defined inputs and establishes complete initial state. `InitError` reports invalid topology, demand endpoints, and budgets separately from `StepError`.
 - `World` owns caller-defined nodes in their supplied order and a `Network`. `Network` stores typed directed edges in insertion order.
 - `EdgeKind` currently supports Road and Rail and owns each mode's capacity and construction cost.
 - `Demand` describes an origin, destination, and requested amount.
