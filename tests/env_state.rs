@@ -239,6 +239,31 @@ fn configurable_scenario_preserves_end_to_end_contracts() {
     assert_eq!(env.metrics, Metrics::default());
     assert_eq!(env.max_steps, 1);
 
+    let nodes_before_rejection = env.world.nodes.clone();
+    let edges_before_rejection = env.world.network.edges().to_vec();
+    let demands_before_rejection = env.demands.clone();
+    let metrics_before_rejection = env.metrics;
+    let budget_before_rejection = env.budget;
+    let step_count_before_rejection = env.step_count;
+    let max_steps_before_rejection = env.max_steps;
+
+    assert_eq!(
+        env.step(Action::AddEdge {
+            from: NodeId(3),
+            to: NodeId(99),
+            kind: EdgeKind::Road,
+        }),
+        Err(StepError::UnknownNode(NodeId(99)))
+    );
+    assert_eq!(env.world.nodes, nodes_before_rejection);
+    assert_eq!(env.world.network.edges(), edges_before_rejection);
+    assert_eq!(env.demands, demands_before_rejection);
+    assert_eq!(env.metrics, metrics_before_rejection);
+    assert_eq!(env.budget, budget_before_rejection);
+    assert_eq!(env.step_count, step_count_before_rejection);
+    assert_eq!(env.max_steps, max_steps_before_rejection);
+    assert_eq!(env.reset(), reset);
+
     let result = env
         .step(Action::AddEdge {
             from: NodeId(3),
