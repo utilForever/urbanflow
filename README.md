@@ -93,6 +93,8 @@ fn main() -> Result<(), StepError> {
 }
 ```
 
+Calling `reset()` restores the world, demands, and budget passed to `Env::new`, clears the episode metrics and step counter, and returns the restored observation. The configured maximum step count is preserved for the next episode.
+
 ## Simulation and rewards
 
 Each edge kind has fixed capacity and construction cost:
