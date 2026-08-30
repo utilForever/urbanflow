@@ -206,7 +206,10 @@ fn configurable_scenario_preserves_end_to_end_contracts() {
         .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
         .unwrap();
 
-    let demands = vec![Demand::new(NodeId(8), NodeId(13), 15)];
+    let demands = vec![
+        Demand::new(NodeId(8), NodeId(13), 15),
+        Demand::new(NodeId(8), NodeId(3), 4),
+    ];
 
     let mut env = Env::new(World { nodes, network }, demands.clone(), 2.0, 1).unwrap();
     env.world
@@ -290,8 +293,8 @@ fn configurable_scenario_preserves_end_to_end_contracts() {
             step_count: 1,
         }
     );
-    assert_eq!(result.metrics, Metrics::new(10, 5, 1.0, 3.0));
-    assert_eq!(result.reward, 1.0);
+    assert_eq!(result.metrics, Metrics::new(14, 5, 1.0, 3.0));
+    assert_eq!(result.reward, 5.0);
     assert!(result.done);
 }
 
