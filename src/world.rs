@@ -43,12 +43,12 @@ impl EdgeKind {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Network {
     edges: Vec<Edge>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct World {
     pub nodes: Vec<Node>,
     pub network: Network,
