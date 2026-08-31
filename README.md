@@ -102,6 +102,8 @@ fn main() {
 
 Calling `reset()` restores the world, demands, and budget passed to `Env::new`, clears the episode metrics and step counter, and returns the restored observation. It leaves `max_steps` unchanged.
 
+Calling `available_actions()` returns an owned list of the valid affordable `AddEdge` actions in stored node `from`/`to` order and supported edge-kind order. It returns an empty list after the step limit is reached.
+
 For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `100.0`, use the convenience constructor:
 
 ```rust
