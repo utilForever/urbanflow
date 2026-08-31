@@ -28,6 +28,9 @@ pub enum EdgeKind {
 }
 
 impl EdgeKind {
+    /// All supported edge kinds in deterministic order.
+    pub const ALL: [Self; 2] = [Self::Road, Self::Rail];
+
     pub const fn capacity(self) -> u32 {
         match self {
             Self::Road => 10,
