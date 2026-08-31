@@ -46,9 +46,19 @@ impl Env {
             })
     }
 
+    fn observation_nodes(&self) -> [NodeId; 4] {
+        let nodes: [_; 4] = self
+            .world
+            .nodes
+            .as_slice()
+            .try_into()
+            .expect("observations require exactly four world nodes");
+        nodes.map(|node| node.id)
+    }
+
     fn observation(&self) -> Observation {
         Observation {
-            nodes: self.world.nodes.map(|node| node.id),
+            nodes: self.observation_nodes(),
             edges: self.world.network.edges().to_vec(),
             demands: self.demands.clone(),
             budget: self.budget,
@@ -97,13 +107,15 @@ impl Env {
             return Err(StepError::InsufficientBudget);
         }
 
-        // Validate before mutating the environment so overflow remains atomic.
+        // Validate before mutating the environment so failed preflight remains atomic.
+        self.observation_nodes();
         self.demands
             .iter()
             .try_fold(0_u64, |total, demand| {
                 total.checked_add(u64::from(demand.amount))
             })
             .expect("total demand exceeds metric capacity");
+
         let next_step_count = self
             .step_count
             .checked_add(1)
@@ -113,9 +125,9 @@ impl Env {
             .network
             .add_edge(from, to, kind)
             .expect("edge was validated before mutation");
+
         self.budget -= kind.construction_cost();
         self.step_count = next_step_count;
-
         self.metrics = tick(&self.world.network, &self.demands);
 
         let reward = reward(self.metrics);

@@ -26,7 +26,7 @@
 
 `urbanflow` provides the foundation for:
 
-- Modeling directed road and rail networks with capacity and passenger demand.
+- Modeling caller-defined node sets and directed road and rail networks with capacity and passenger demand.
 - Keeping simulation and environment logic in a reusable Rust library crate.
 - Supporting future training, evaluation, and integration workflows around reinforcement learning agents.
 - Measuring served and unserved demand, congestion, and network construction cost.

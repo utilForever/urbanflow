@@ -4,7 +4,7 @@ use urbanflow::env::{Env, StepError};
 use urbanflow::metrics::Metrics;
 use urbanflow::observation::Observation;
 use urbanflow::world::{
-    AddEdgeError, Edge, EdgeId, EdgeKind, Network, NodeId, ToyCity, World, toy_city,
+    AddEdgeError, Edge, EdgeId, EdgeKind, Network, Node, NodeId, ToyCity, World, toy_city,
 };
 
 fn reset_env() -> Env {
@@ -88,7 +88,7 @@ fn reset_restores_the_fixed_initial_state() {
 
     let observation = env.reset();
     let expected_world = toy_city();
-    let nodes = expected_world.nodes.map(|node| node.id);
+    let nodes = [NodeId(0), NodeId(1), NodeId(2), NodeId(3)];
     let edges = expected_world.network.edges().to_vec();
     let demands = vec![Demand::new(NodeId(0), NodeId(3), 10)];
 
@@ -102,7 +102,14 @@ fn reset_restores_the_fixed_initial_state() {
             step_count: 0,
         }
     );
-    assert_eq!(env.world.nodes.map(|node| node.id), nodes);
+    assert_eq!(
+        env.world
+            .nodes
+            .iter()
+            .map(|node| node.id)
+            .collect::<Vec<_>>(),
+        nodes
+    );
     assert_eq!(env.world.network.edges(), edges);
     assert_eq!(env.demands, demands);
     assert_eq!(env.metrics, Metrics::default());
@@ -227,8 +234,8 @@ fn step_finishes_when_only_unaffordable_valid_edges_remain() {
     let nodes = toy_city().nodes;
     let mut network = Network::new();
 
-    for from in nodes {
-        for to in nodes {
+    for from in nodes.iter() {
+        for to in nodes.iter() {
             if from != to && (from.id, to.id) != (NodeId(1), NodeId(2)) {
                 network.add_edge(from.id, to.id, EdgeKind::Road).unwrap();
             }
@@ -333,6 +340,40 @@ fn invalid_action_does_not_advance_the_environment() {
         },
         StepError::InvalidEdge(AddEdgeError::DuplicateEdge),
     );
+}
+
+#[test]
+fn variable_size_world_observation_failure_is_atomic() {
+    let metrics = Metrics::new(4, 6, 0.5, 2.0);
+    let mut env = Env {
+        world: World {
+            nodes: vec![
+                Node { id: NodeId(0) },
+                Node { id: NodeId(1) },
+                Node { id: NodeId(2) },
+            ],
+            network: Network::new(),
+        },
+        demands: Vec::new(),
+        metrics,
+        budget: 100.0,
+        step_count: 0,
+        max_steps: 100,
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.step(Action::AddEdge {
+            from: NodeId(0),
+            to: NodeId(1),
+            kind: EdgeKind::Road,
+        })
+    }));
+
+    assert!(result.is_err());
+    assert!(env.world.network.edges().is_empty());
+    assert_eq!(env.metrics, metrics);
+    assert_eq!(env.budget, 100.0);
+    assert_eq!(env.step_count, 0);
 }
 
 #[test]

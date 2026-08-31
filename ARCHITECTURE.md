@@ -48,7 +48,7 @@ Expected errors return before mutation. Overflow checks also run before mutation
 
 - `Action` describes an agent request. The only current action adds a typed directed edge.
 - `Env` owns the current `World`, demands, metrics, budget, step counter, and episode limit. It validates actions, commits successful transitions, calculates reward, and creates agent-facing snapshots.
-- `World` owns the fixed toy-city nodes and a `Network`. `Network` stores typed directed edges in insertion order.
+- `World` owns caller-defined nodes in their supplied order and a `Network`. `Network` stores typed directed edges in insertion order.
 - `EdgeKind` currently supports Road and Rail and owns each mode's capacity and construction cost.
 - `Demand` describes an origin, destination, and requested amount.
 - `ConnectivityIndex` derives an adjacency list from a `Network` and finds directed shortest paths with breadth-first search.
