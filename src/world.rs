@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+
+use crate::env::InitError;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NodeId(pub usize);
 
@@ -56,6 +60,28 @@ pub type ToyCity = World;
 pub enum AddEdgeError {
     DuplicateEdge,
     SelfConnection,
+}
+
+impl World {
+    pub fn validate_topology(&self) -> Result<(), InitError> {
+        let mut node_ids = HashSet::with_capacity(self.nodes.len());
+
+        for node in self.nodes.iter() {
+            if !node_ids.insert(node.id) {
+                return Err(InitError::DuplicateNode(node.id));
+            }
+        }
+
+        for edge in self.network.edges() {
+            for endpoint in [edge.from, edge.to] {
+                if !node_ids.contains(&endpoint) {
+                    return Err(InitError::UnknownEdgeEndpoint(endpoint));
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Network {
@@ -154,6 +180,88 @@ mod tests {
         assert_eq!(
             world.nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
             vec![NodeId(usize::MAX), NodeId(7), NodeId(0)]
+        );
+    }
+
+    #[test]
+    fn world_topology_rejects_the_first_duplicate_node() {
+        let mut network = Network::new();
+        network
+            .add_edge(NodeId(99), NodeId(3), EdgeKind::Road)
+            .unwrap();
+
+        let world = World {
+            nodes: vec![
+                Node { id: NodeId(7) },
+                Node { id: NodeId(3) },
+                Node { id: NodeId(7) },
+                Node { id: NodeId(3) },
+            ],
+            network,
+        };
+
+        assert_eq!(
+            world.validate_topology(),
+            Err(crate::env::InitError::DuplicateNode(NodeId(7)))
+        );
+    }
+
+    #[test]
+    fn world_topology_rejects_unknown_edge_endpoints() {
+        for (from, to, unknown) in [
+            (NodeId(99), NodeId(1), NodeId(99)),
+            (NodeId(1), NodeId(99), NodeId(99)),
+            (NodeId(98), NodeId(99), NodeId(98)),
+        ] {
+            let mut network = Network::new();
+            network.add_edge(from, to, EdgeKind::Road).unwrap();
+
+            let world = World {
+                nodes: vec![Node { id: NodeId(1) }, Node { id: NodeId(2) }],
+                network,
+            };
+
+            assert_eq!(
+                world.validate_topology(),
+                Err(crate::env::InitError::UnknownEdgeEndpoint(unknown))
+            );
+        }
+    }
+
+    #[test]
+    fn world_topology_preserves_valid_node_and_edge_order() {
+        let mut network = Network::new();
+        network
+            .add_edge(NodeId(usize::MAX), NodeId(7), EdgeKind::Rail)
+            .unwrap();
+        network
+            .add_edge(NodeId(0), NodeId(usize::MAX), EdgeKind::Road)
+            .unwrap();
+
+        let world = World {
+            nodes: vec![
+                Node {
+                    id: NodeId(usize::MAX),
+                },
+                Node { id: NodeId(7) },
+                Node { id: NodeId(0) },
+            ],
+            network,
+        };
+
+        assert_eq!(world.validate_topology(), Ok(()));
+        assert_eq!(
+            world.nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
+            vec![NodeId(usize::MAX), NodeId(7), NodeId(0)]
+        );
+        assert_eq!(
+            world
+                .network
+                .edges()
+                .iter()
+                .map(|edge| edge.id)
+                .collect::<Vec<_>>(),
+            vec![EdgeId(0), EdgeId(1)]
         );
     }
 
