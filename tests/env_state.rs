@@ -37,6 +37,11 @@ fn assert_episode_complete_step_does_not_mutate(env: Env) {
 }
 
 #[test]
+fn edge_kinds_expose_deterministic_public_order() {
+    assert_eq!(EdgeKind::ALL, [EdgeKind::Road, EdgeKind::Rail]);
+}
+
+#[test]
 fn env_holds_current_state() {
     let ToyCity { nodes, network } = toy_city();
     let world: World = ToyCity { nodes, network };
