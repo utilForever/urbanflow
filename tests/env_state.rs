@@ -50,7 +50,7 @@ fn available_actions_match_public_step_contract() {
         .add_edge(NodeId(7), NodeId(3), EdgeKind::Road)
         .unwrap();
 
-    let mut env = Env::new(World { nodes, network }, Vec::new(), 2.0, 1).unwrap();
+    let mut env = Env::new(World { nodes, network }, Vec::new(), 3.0, 1).unwrap();
 
     assert_eq!(
         env.available_actions(),
@@ -86,12 +86,12 @@ fn available_actions_match_public_step_contract() {
         }]
     );
 
+    env.budget = 3.0;
     env.step(available_actions[0]).unwrap();
-}
 
-#[test]
-fn available_actions_are_empty_after_the_step_limit() {
-    assert!(Env::toy_city(0).available_actions().is_empty());
+    assert_eq!(env.budget, 2.0);
+    assert_eq!(env.step_count, env.max_steps);
+    assert!(env.available_actions().is_empty());
 }
 
 #[test]
