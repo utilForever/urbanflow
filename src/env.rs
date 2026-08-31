@@ -105,6 +105,35 @@ impl Env {
         Ok(())
     }
 
+    /// Returns the valid affordable actions in deterministic order.
+    pub fn available_actions(&self) -> Vec<Action> {
+        if self.step_count >= self.max_steps {
+            return Vec::new();
+        }
+
+        self.world
+            .nodes
+            .iter()
+            .flat_map(|from| {
+                self.world.nodes.iter().flat_map(move |to| {
+                    EdgeKind::ALL.into_iter().filter_map(move |kind| {
+                        (self.budget >= kind.construction_cost()
+                            && self
+                                .world
+                                .network
+                                .validate_add_edge(from.id, to.id, kind)
+                                .is_ok())
+                        .then_some(Action::AddEdge {
+                            from: from.id,
+                            to: to.id,
+                            kind,
+                        })
+                    })
+                })
+            })
+            .collect()
+    }
+
     fn is_done(&self) -> bool {
         self.step_count >= self.max_steps
             || !self.world.nodes.iter().any(|from| {
