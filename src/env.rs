@@ -135,19 +135,7 @@ impl Env {
     }
 
     fn is_done(&self) -> bool {
-        self.step_count >= self.max_steps
-            || !self.world.nodes.iter().any(|from| {
-                self.world.nodes.iter().any(|to| {
-                    EdgeKind::ALL.into_iter().any(|kind| {
-                        self.budget >= kind.construction_cost()
-                            && self
-                                .world
-                                .network
-                                .validate_add_edge(from.id, to.id, kind)
-                                .is_ok()
-                    })
-                })
-            })
+        self.available_actions().is_empty()
     }
 
     fn observation(&self) -> Observation {
