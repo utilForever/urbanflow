@@ -16,6 +16,15 @@ pub struct Env {
     pub max_steps: usize,
 }
 
+/// Errors found while validating caller-defined environment inputs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InitError {
+    DuplicateNode(NodeId),
+    UnknownEdgeEndpoint(NodeId),
+    UnknownDemandEndpoint(NodeId),
+    InvalidBudget,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StepError {
     InvalidEdge(AddEdgeError),

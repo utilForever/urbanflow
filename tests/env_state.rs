@@ -1,6 +1,6 @@
 use urbanflow::action::Action;
 use urbanflow::demand::Demand;
-use urbanflow::env::{Env, StepError};
+use urbanflow::env::{Env, InitError, StepError};
 use urbanflow::metrics::Metrics;
 use urbanflow::observation::Observation;
 use urbanflow::world::{
@@ -373,6 +373,21 @@ fn step_returns_an_owned_variable_size_node_snapshot() {
         result.observation.nodes.as_slice(),
         &[NodeId(7), NodeId(3), NodeId(5)]
     );
+}
+
+#[test]
+fn initialization_errors_distinguish_invalid_input_sources() {
+    let node = NodeId(7);
+
+    assert_eq!(
+        InitError::DuplicateNode(node),
+        InitError::DuplicateNode(node)
+    );
+    assert_ne!(
+        InitError::UnknownEdgeEndpoint(node),
+        InitError::UnknownDemandEndpoint(node)
+    );
+    assert_eq!(InitError::InvalidBudget, InitError::InvalidBudget);
 }
 
 #[test]
