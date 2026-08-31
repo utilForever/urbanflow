@@ -3,7 +3,7 @@ use crate::world::{Edge, NodeId};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Observation {
-    pub nodes: [NodeId; 4],
+    pub nodes: Vec<NodeId>,
     pub edges: Vec<Edge>,
     pub demands: Vec<Demand>,
     pub budget: f64,

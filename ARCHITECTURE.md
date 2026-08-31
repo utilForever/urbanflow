@@ -53,7 +53,7 @@ Expected errors return before mutation. Overflow checks also run before mutation
 - `Demand` describes an origin, destination, and requested amount.
 - `ConnectivityIndex` derives an adjacency list from a `Network` and finds directed shortest paths with breadth-first search.
 - `simulation::tick` allocates capacity to demands and returns aggregate `Metrics`. It is crate-private so callers cannot bypass the environment API accidentally.
-- `Observation` is an owned snapshot of agent-visible state. `StepResult` combines that snapshot with reward, completion state, and metrics.
+- `Observation` is an owned snapshot of agent-visible state, including a variable-size node list in world order. `StepResult` combines that snapshot with reward, completion state, and metrics.
 
 ## Module Map
 

@@ -7,7 +7,7 @@ use urbanflow::world::{Edge, EdgeId, EdgeKind, NodeId};
 #[test]
 fn step_result_owns_step_outputs() {
     let observation = Observation {
-        nodes: [NodeId(0), NodeId(1), NodeId(2), NodeId(3)],
+        nodes: vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3)],
         edges: vec![Edge {
             id: EdgeId(0),
             from: NodeId(0),
