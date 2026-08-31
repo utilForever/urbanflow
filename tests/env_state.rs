@@ -73,38 +73,20 @@ fn available_actions_match_public_step_contract() {
         ]
     );
 
-    let action = env.available_actions()[1];
-    env.step(action).unwrap();
-}
+    env.budget = 1.0;
 
-#[test]
-fn available_actions_exclude_unaffordable_edge_kinds() {
-    let env = Env::new(
-        World {
-            nodes: vec![Node { id: NodeId(7) }, Node { id: NodeId(3) }],
-            network: Network::new(),
-        },
-        Vec::new(),
-        1.0,
-        1,
-    )
-    .unwrap();
+    let available_actions = env.available_actions();
 
     assert_eq!(
-        env.available_actions(),
-        vec![
-            Action::AddEdge {
-                from: NodeId(7),
-                to: NodeId(3),
-                kind: EdgeKind::Road,
-            },
-            Action::AddEdge {
-                from: NodeId(3),
-                to: NodeId(7),
-                kind: EdgeKind::Road,
-            },
-        ]
+        available_actions,
+        vec![Action::AddEdge {
+            from: NodeId(3),
+            to: NodeId(7),
+            kind: EdgeKind::Road,
+        }]
     );
+
+    env.step(available_actions[0]).unwrap();
 }
 
 #[test]
