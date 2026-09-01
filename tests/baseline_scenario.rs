@@ -31,3 +31,14 @@ fn baseline_scenario_offers_one_unique_best_action() {
         }
     }
 }
+
+#[test]
+fn random_policy_baseline_repeats_fixed_reward() {
+    assert_eq!(
+        (
+            baseline::random_policy_reward(),
+            baseline::random_policy_reward()
+        ),
+        (-530.0, -530.0)
+    );
+}
