@@ -52,6 +52,12 @@ Successful construction preserves the caller's node, edge, and demand order and 
 
 `Env::toy_city(max_steps)` is a convenience constructor for the built-in scenario. It delegates to `Env::new`, so configurable and built-in scenarios share the same validation and reset path.
 
+## Training Consumers
+
+The `random_policy` and `tabular_q_learning` examples are consumers of the public library API, not part of the environment core. Their shared baseline constructs a scenario with `Env::new`, starts each episode with `reset`, obtains valid actions from `available_actions`, and applies the selected action with `step`. Policy state and action selection remain outside the library.
+
+The baseline is deliberately limited to one decision state and one step per episode. It uses a fixed seed for reproducibility, and the learner keeps one tabular value per available action. It has no state table, discounting, function approximation, deep RL integration, Python interface, visualization tooling, or general multi-step training loop. Those capabilities remain future consumers or separately scoped work rather than implemented architecture.
+
 ## Core Model
 
 - `Action` describes an agent request. The only current action adds a typed directed edge.
