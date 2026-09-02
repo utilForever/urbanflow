@@ -4,6 +4,15 @@ use urbanflow::world::{Network, Node, NodeId, World};
 
 pub const RANDOM_POLICY_EPISODES: usize = 100;
 
+const RANDOM_SEED: u64 = 0x5eed;
+
+fn next_random(random: &mut u64) -> u64 {
+    *random ^= *random << 13;
+    *random ^= *random >> 7;
+    *random ^= *random << 17;
+    *random
+}
+
 pub fn scenario() -> Env {
     Env::new(
         World {
@@ -19,7 +28,7 @@ pub fn scenario() -> Env {
 
 pub fn random_policy_reward() -> f64 {
     let mut env = scenario();
-    let mut random = 0x5eed_u64;
+    let mut random = RANDOM_SEED;
     let mut total_reward = 0.0;
 
     for _ in 0..RANDOM_POLICY_EPISODES {
@@ -27,11 +36,7 @@ pub fn random_policy_reward() -> f64 {
 
         loop {
             let actions = env.available_actions();
-            random ^= random << 13;
-            random ^= random >> 7;
-            random ^= random << 17;
-
-            let action = actions[(random % actions.len() as u64) as usize];
+            let action = actions[(next_random(&mut random) % actions.len() as u64) as usize];
             let result = env.step(action).expect("available action is valid");
 
             total_reward += result.reward;
