@@ -110,6 +110,22 @@ For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `
 let mut env = urbanflow::env::Env::toy_city(100);
 ```
 
+## Baseline RL examples
+
+Run the deterministic random-policy and tabular Q-learning baselines with:
+
+```bash
+cargo run --example random_policy
+cargo run --example tabular_q_learning
+```
+
+The programs print:
+
+```text
+Random policy total reward over 100 episodes: -530.00
+Tabular Q-learning action after 100 episodes: AddEdge { from: NodeId(0), to: NodeId(1), kind: Rail }
+```
+
 ## Simulation and rewards
 
 Each edge kind has fixed capacity and construction cost:
