@@ -42,3 +42,17 @@ fn random_policy_baseline_repeats_fixed_reward() {
         (-530.0, -530.0)
     );
 }
+
+#[test]
+fn tabular_q_learning_repeats_the_best_action() {
+    let best_action = Action::AddEdge {
+        from: NodeId(0),
+        to: NodeId(1),
+        kind: EdgeKind::Rail,
+    };
+
+    assert_eq!(
+        (baseline::q_learning_action(), baseline::q_learning_action()),
+        (best_action, best_action)
+    );
+}
