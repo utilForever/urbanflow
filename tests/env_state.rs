@@ -194,6 +194,111 @@ fn reset_repeats_the_configured_episode_deterministically() {
 }
 
 #[test]
+fn configurable_scenario_preserves_end_to_end_contracts() {
+    let nodes = vec![
+        Node { id: NodeId(8) },
+        Node { id: NodeId(3) },
+        Node { id: NodeId(13) },
+    ];
+
+    let mut network = Network::new();
+    network
+        .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+
+    let demands = vec![
+        Demand::new(NodeId(8), NodeId(13), 15),
+        Demand::new(NodeId(8), NodeId(3), 4),
+    ];
+
+    let mut env = Env::new(World { nodes, network }, demands.clone(), 2.0, 1).unwrap();
+    env.world
+        .network
+        .add_edge(NodeId(3), NodeId(13), EdgeKind::Road)
+        .unwrap();
+    env.demands.clear();
+    env.metrics = Metrics::new(1, 2, 0.5, 3.0);
+    env.budget = 0.0;
+    env.step_count = 1;
+
+    let initial_edge = Edge {
+        id: EdgeId(0),
+        from: NodeId(8),
+        to: NodeId(3),
+        kind: EdgeKind::Rail,
+    };
+    let reset = env.reset();
+
+    assert_eq!(
+        reset,
+        Observation {
+            nodes: vec![NodeId(8), NodeId(3), NodeId(13)],
+            edges: vec![initial_edge],
+            demands: demands.clone(),
+            budget: 2.0,
+            step_count: 0,
+        }
+    );
+    assert_eq!(env.metrics, Metrics::default());
+    assert_eq!(env.max_steps, 1);
+
+    let nodes_before_rejection = env.world.nodes.clone();
+    let edges_before_rejection = env.world.network.edges().to_vec();
+    let demands_before_rejection = env.demands.clone();
+    let metrics_before_rejection = env.metrics;
+    let budget_before_rejection = env.budget;
+    let step_count_before_rejection = env.step_count;
+    let max_steps_before_rejection = env.max_steps;
+
+    assert_eq!(
+        env.step(Action::AddEdge {
+            from: NodeId(3),
+            to: NodeId(99),
+            kind: EdgeKind::Road,
+        }),
+        Err(StepError::UnknownNode(NodeId(99)))
+    );
+    assert_eq!(env.world.nodes, nodes_before_rejection);
+    assert_eq!(env.world.network.edges(), edges_before_rejection);
+    assert_eq!(env.demands, demands_before_rejection);
+    assert_eq!(env.metrics, metrics_before_rejection);
+    assert_eq!(env.budget, budget_before_rejection);
+    assert_eq!(env.step_count, step_count_before_rejection);
+    assert_eq!(env.max_steps, max_steps_before_rejection);
+    assert_eq!(env.reset(), reset);
+
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(3),
+            to: NodeId(13),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+
+    assert_eq!(
+        result.observation,
+        Observation {
+            nodes: vec![NodeId(8), NodeId(3), NodeId(13)],
+            edges: vec![
+                initial_edge,
+                Edge {
+                    id: EdgeId(1),
+                    from: NodeId(3),
+                    to: NodeId(13),
+                    kind: EdgeKind::Road,
+                },
+            ],
+            demands,
+            budget: 1.0,
+            step_count: 1,
+        }
+    );
+    assert_eq!(result.metrics, Metrics::new(14, 5, 1.0, 3.0));
+    assert_eq!(result.reward, 5.0);
+    assert!(result.done);
+}
+
+#[test]
 fn step_simulates_reachable_demand() {
     let mut env = reset_env();
 
