@@ -42,7 +42,7 @@ fn edge_kinds_expose_deterministic_public_order() {
 }
 
 #[test]
-fn available_actions_follow_node_and_edge_kind_order() {
+fn available_actions_match_public_step_contract() {
     let nodes = vec![Node { id: NodeId(7) }, Node { id: NodeId(3) }];
     let mut network = Network::new();
 
@@ -50,7 +50,7 @@ fn available_actions_follow_node_and_edge_kind_order() {
         .add_edge(NodeId(7), NodeId(3), EdgeKind::Road)
         .unwrap();
 
-    let env = Env::new(World { nodes, network }, Vec::new(), 2.0, 1).unwrap();
+    let mut env = Env::new(World { nodes, network }, Vec::new(), 3.0, 1).unwrap();
 
     assert_eq!(
         env.available_actions(),
@@ -72,41 +72,26 @@ fn available_actions_follow_node_and_edge_kind_order() {
             },
         ]
     );
-}
 
-#[test]
-fn available_actions_exclude_unaffordable_edge_kinds() {
-    let env = Env::new(
-        World {
-            nodes: vec![Node { id: NodeId(7) }, Node { id: NodeId(3) }],
-            network: Network::new(),
-        },
-        Vec::new(),
-        1.0,
-        1,
-    )
-    .unwrap();
+    env.budget = 1.0;
+
+    let available_actions = env.available_actions();
 
     assert_eq!(
-        env.available_actions(),
-        vec![
-            Action::AddEdge {
-                from: NodeId(7),
-                to: NodeId(3),
-                kind: EdgeKind::Road,
-            },
-            Action::AddEdge {
-                from: NodeId(3),
-                to: NodeId(7),
-                kind: EdgeKind::Road,
-            },
-        ]
+        available_actions,
+        vec![Action::AddEdge {
+            from: NodeId(3),
+            to: NodeId(7),
+            kind: EdgeKind::Road,
+        }]
     );
-}
 
-#[test]
-fn available_actions_are_empty_after_the_step_limit() {
-    assert!(Env::toy_city(0).available_actions().is_empty());
+    env.budget = 3.0;
+    env.step(available_actions[0]).unwrap();
+
+    assert_eq!(env.budget, 2.0);
+    assert_eq!(env.step_count, env.max_steps);
+    assert!(env.available_actions().is_empty());
 }
 
 #[test]
