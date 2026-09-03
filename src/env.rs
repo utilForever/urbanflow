@@ -4,7 +4,14 @@ use crate::metrics::Metrics;
 use crate::observation::Observation;
 use crate::simulation::tick;
 use crate::step_result::StepResult;
-use crate::world::{AddEdgeError, EdgeKind, NodeId, World, toy_city};
+use crate::world::{AddEdgeError, EdgeKind, NodeId, World};
+
+#[derive(Debug)]
+struct InitialState {
+    world: World,
+    demands: Vec<Demand>,
+    budget: f64,
+}
 
 #[derive(Debug)]
 pub struct Env {
@@ -14,6 +21,7 @@ pub struct Env {
     pub budget: f64,
     pub step_count: usize,
     pub max_steps: usize,
+    initial_state: InitialState,
 }
 
 /// Errors found while validating caller-defined environment inputs.
@@ -49,6 +57,11 @@ impl Env {
         Self::validate_inputs(&world, &demands, budget)?;
 
         Ok(Self {
+            initial_state: InitialState {
+                world: world.clone(),
+                demands: demands.clone(),
+                budget,
+            },
             world,
             demands,
             metrics: Metrics::default(),
@@ -107,16 +120,13 @@ impl Env {
         }
     }
 
+    /// Restores the caller-defined initial state and returns its observation.
     pub fn reset(&mut self) -> Observation {
-        let max_steps = self.max_steps;
-        *self = Self {
-            world: toy_city(),
-            demands: vec![Demand::new(NodeId(0), NodeId(3), 10)],
-            metrics: Metrics::default(),
-            budget: 100.0,
-            step_count: 0,
-            max_steps,
-        };
+        self.world = self.initial_state.world.clone();
+        self.demands.clone_from(&self.initial_state.demands);
+        self.metrics = Metrics::default();
+        self.budget = self.initial_state.budget;
+        self.step_count = 0;
 
         self.observation()
     }

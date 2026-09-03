@@ -48,14 +48,10 @@ fn env_holds_current_state() {
     let world: World = ToyCity { nodes, network };
     let demand = Demand::new(NodeId(0), NodeId(3), 10);
     let metrics = Metrics::new(8, 2, 0.25, 12.5);
-    let env = Env {
-        world,
-        demands: vec![demand],
-        metrics,
-        budget: 100.0,
-        step_count: 3,
-        max_steps: 100,
-    };
+    let mut env = Env::new(world, vec![demand], 100.0, 100).unwrap();
+
+    env.metrics = metrics;
+    env.step_count = 3;
 
     assert_eq!(env.world.nodes.len(), 4);
     assert_eq!(env.world.network.edges().len(), 2);
@@ -122,52 +118,49 @@ fn explicit_environment_construction_returns_validation_errors() {
 }
 
 #[test]
-fn reset_restores_the_fixed_initial_state() {
-    let mut world = toy_city();
-    world.nodes[0].id = NodeId(99);
-    world
-        .network
-        .add_edge(NodeId(1), NodeId(2), EdgeKind::Road)
+fn reset_repeats_the_configured_episode_deterministically() {
+    let nodes = vec![Node { id: NodeId(7) }, Node { id: NodeId(3) }];
+    let mut network = Network::new();
+    network
+        .add_edge(NodeId(7), NodeId(3), EdgeKind::Rail)
         .unwrap();
-    let mut env = Env {
-        world,
-        demands: vec![Demand::new(NodeId(3), NodeId(0), 99)],
-        metrics: Metrics::new(1, 2, 3.0, 4.0),
-        budget: 1.0,
-        step_count: 7,
-        max_steps: 7,
+
+    let demands = vec![Demand::new(NodeId(7), NodeId(3), 15)];
+    let mut env = Env::new(World { nodes, network }, demands.clone(), 12.0, 7).unwrap();
+
+    let action = Action::AddEdge {
+        from: NodeId(7),
+        to: NodeId(3),
+        kind: EdgeKind::Road,
     };
+    let first_episode = env.step(action).unwrap();
 
     let observation = env.reset();
-    let expected_world = toy_city();
-    let nodes = vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3)];
-    let edges = expected_world.network.edges().to_vec();
-    let demands = vec![Demand::new(NodeId(0), NodeId(3), 10)];
+    let expected_edge = Edge {
+        id: EdgeId(0),
+        from: NodeId(7),
+        to: NodeId(3),
+        kind: EdgeKind::Rail,
+    };
 
     assert_eq!(
         observation,
         Observation {
-            nodes: nodes.clone(),
-            edges: edges.clone(),
+            nodes: vec![NodeId(7), NodeId(3)],
+            edges: vec![expected_edge],
             demands: demands.clone(),
-            budget: 100.0,
+            budget: 12.0,
             step_count: 0,
         }
     );
-    assert_eq!(
-        env.world
-            .nodes
-            .iter()
-            .map(|node| node.id)
-            .collect::<Vec<_>>(),
-        nodes
-    );
-    assert_eq!(env.world.network.edges(), edges);
+    assert_eq!(env.world.network.edges(), &[expected_edge]);
     assert_eq!(env.demands, demands);
     assert_eq!(env.metrics, Metrics::default());
-    assert_eq!(env.budget, 100.0);
+    assert_eq!(env.budget, 12.0);
     assert_eq!(env.step_count, 0);
     assert_eq!(env.max_steps, 7);
+
+    assert_eq!(env.step(action).unwrap(), first_episode);
 }
 
 #[test]
@@ -396,8 +389,8 @@ fn invalid_action_does_not_advance_the_environment() {
 
 #[test]
 fn step_returns_an_owned_variable_size_node_snapshot() {
-    let mut env = Env {
-        world: World {
+    let mut env = Env::new(
+        World {
             nodes: vec![
                 Node { id: NodeId(7) },
                 Node { id: NodeId(3) },
@@ -405,12 +398,11 @@ fn step_returns_an_owned_variable_size_node_snapshot() {
             ],
             network: Network::new(),
         },
-        demands: Vec::new(),
-        metrics: Metrics::default(),
-        budget: 100.0,
-        step_count: 0,
-        max_steps: 100,
-    };
+        Vec::new(),
+        100.0,
+        100,
+    )
+    .unwrap();
 
     let result = env
         .step(Action::AddEdge {
