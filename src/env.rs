@@ -109,7 +109,7 @@ impl Env {
         self.step_count >= self.max_steps
             || !self.world.nodes.iter().any(|from| {
                 self.world.nodes.iter().any(|to| {
-                    [EdgeKind::Road, EdgeKind::Rail].into_iter().any(|kind| {
+                    EdgeKind::ALL.into_iter().any(|kind| {
                         self.budget >= kind.construction_cost()
                             && self
                                 .world
