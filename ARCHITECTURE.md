@@ -8,6 +8,8 @@ The public API is organized around `Env`. A caller submits an `Action`, the envi
 
 The public `time` module provides an independent deterministic simulation clock. Vehicle movement does not consume or expose that clock yet.
 
+The public `rail` module provides an ordered fixed route and the capacity, timing, and position state for one Rail vehicle. These are data types only; route validation and tick transitions are not implemented yet.
+
 ```mermaid
 flowchart LR
     Caller["Caller or RL agent"] --> Action
@@ -72,6 +74,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - `ConnectivityIndex` derives an adjacency list from a `Network` and finds directed shortest paths with breadth-first search.
 - `simulation::tick` allocates capacity to demands and returns aggregate `Metrics`. It is crate-private so callers cannot bypass the environment API accidentally.
 - `SimulationClock` starts at tick zero and advances by one checked integer tick through an explicit operation.
+- `RailRoute` stores Rail edge identifiers in caller-supplied order. `RailVehicle` stores one vehicle's capacity, fixed edge-travel and stop-dwell durations, and current stop, edge, or completion state.
 - `Observation` is an owned snapshot of agent-visible state, including a variable-size node list in world order. `StepResult` combines that snapshot with reward, completion state, and metrics.
 
 ## Module Map
@@ -84,6 +87,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 | `metrics`     | Public        | Aggregate simulation output                                     |
 | `network`     | Public        | Derived reachability and path queries                           |
 | `observation` | Public        | Agent-facing state snapshots                                    |
+| `rail`        | Public        | Fixed Rail routes and one vehicle's tick-based state            |
 | `simulation`  | Crate-private | Demand allocation and metric calculation                        |
 | `step_result` | Public        | Successful step output                                          |
 | `time`        | Public        | Deterministic checked simulation time                           |
@@ -99,6 +103,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - Congestion is the maximum edge load divided by capacity, or zero for a network without edges. Cost is the sum of edge construction costs.
 - Reward is `served demand - unserved demand - congestion - cost`.
 - Simulation time starts at tick zero. Each successful advance adds exactly one tick; overflow returns an error without changing the clock.
+- Rail routes preserve stored edge order. Vehicle state identifies positions by stop or edge index and stores dwell ticks remaining or travel ticks elapsed.
 - Available actions enumerate stored nodes in `from`/`to` order and `EdgeKind::ALL` order, excluding invalid or unaffordable edges. The list is empty after the step limit.
 - Invalid steps do not change the world, budget, step counter, metrics, or observations.
 
