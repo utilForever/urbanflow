@@ -7,6 +7,9 @@ pub enum RailInitError {
     UnknownEdge(EdgeId),
     NonRailEdge(EdgeId),
     DisconnectedEdges { previous: EdgeId, next: EdgeId },
+    InvalidCapacity,
+    InvalidTravelTicks,
+    InvalidDwellTicks,
 }
 
 /// An ordered sequence of Rail edges.
@@ -69,8 +72,54 @@ pub enum RailVehicleState {
 /// One fixed-route Rail vehicle and its current state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RailVehicle {
-    pub capacity: u32,
-    pub travel_ticks_per_edge: u64,
-    pub dwell_ticks_per_stop: u64,
-    pub state: RailVehicleState,
+    capacity: u32,
+    travel_ticks_per_edge: u64,
+    dwell_ticks_per_stop: u64,
+    state: RailVehicleState,
+}
+
+impl RailVehicle {
+    pub fn new(
+        capacity: u32,
+        travel_ticks_per_edge: u64,
+        dwell_ticks_per_stop: u64,
+    ) -> Result<Self, RailInitError> {
+        if capacity == 0 {
+            return Err(RailInitError::InvalidCapacity);
+        }
+
+        if travel_ticks_per_edge == 0 {
+            return Err(RailInitError::InvalidTravelTicks);
+        }
+
+        if dwell_ticks_per_stop == 0 {
+            return Err(RailInitError::InvalidDwellTicks);
+        }
+
+        Ok(Self {
+            capacity,
+            travel_ticks_per_edge,
+            dwell_ticks_per_stop,
+            state: RailVehicleState::AtStop {
+                stop_index: 0,
+                dwell_ticks_remaining: dwell_ticks_per_stop,
+            },
+        })
+    }
+
+    pub const fn capacity(&self) -> u32 {
+        self.capacity
+    }
+
+    pub const fn travel_ticks_per_edge(&self) -> u64 {
+        self.travel_ticks_per_edge
+    }
+
+    pub const fn dwell_ticks_per_stop(&self) -> u64 {
+        self.dwell_ticks_per_stop
+    }
+
+    pub const fn state(&self) -> RailVehicleState {
+        self.state
+    }
 }
