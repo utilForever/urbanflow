@@ -68,21 +68,18 @@ cargo test --all
 
 ```rust
 use urbanflow::action::Action;
+use urbanflow::demand::Demand;
 use urbanflow::env::{Env, StepError};
-use urbanflow::metrics::Metrics;
 use urbanflow::world::{EdgeKind, NodeId, toy_city};
 
 fn main() -> Result<(), StepError> {
-    let mut env = Env {
-        world: toy_city(),
-        demands: Vec::new(),
-        metrics: Metrics::default(),
-        budget: 0.0,
-        step_count: 0,
-        max_steps: 100,
-    };
-
-    env.reset();
+    let mut env = Env::new(
+        toy_city(),
+        vec![Demand::new(NodeId(0), NodeId(3), 10)],
+        100.0,
+        100,
+    )
+    .expect("example inputs are valid");
 
     let result = env.step(Action::AddEdge {
         from: NodeId(1),

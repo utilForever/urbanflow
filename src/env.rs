@@ -39,6 +39,25 @@ fn reward(metrics: Metrics) -> f64 {
 }
 
 impl Env {
+    /// Constructs a validated caller-defined environment.
+    pub fn new(
+        world: World,
+        demands: Vec<Demand>,
+        budget: f64,
+        max_steps: usize,
+    ) -> Result<Self, InitError> {
+        Self::validate_inputs(&world, &demands, budget)?;
+
+        Ok(Self {
+            world,
+            demands,
+            metrics: Metrics::default(),
+            budget,
+            step_count: 0,
+            max_steps,
+        })
+    }
+
     /// Validates caller-defined inputs before environment construction.
     pub fn validate_inputs(
         world: &World,

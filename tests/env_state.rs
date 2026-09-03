@@ -8,16 +8,13 @@ use urbanflow::world::{
 };
 
 fn reset_env() -> Env {
-    let mut env = Env {
-        world: toy_city(),
-        demands: Vec::new(),
-        metrics: Metrics::default(),
-        budget: 0.0,
-        step_count: 0,
-        max_steps: 100,
-    };
-    env.reset();
-    env
+    Env::new(
+        toy_city(),
+        vec![Demand::new(NodeId(0), NodeId(3), 10)],
+        100.0,
+        100,
+    )
+    .unwrap()
 }
 
 fn assert_rejected_step_does_not_mutate(mut env: Env, action: Action, expected: StepError) {
@@ -67,6 +64,61 @@ fn env_holds_current_state() {
     assert_eq!(env.budget, 100.0);
     assert_eq!(env.step_count, 3);
     assert_eq!(env.max_steps, 100);
+}
+
+#[test]
+fn explicit_environment_construction_initializes_complete_state() {
+    let demand = Demand::new(NodeId(0), NodeId(3), 10);
+
+    let env = Env::new(toy_city(), vec![demand], 42.0, 7).unwrap();
+
+    assert_eq!(
+        env.world
+            .nodes
+            .iter()
+            .map(|node| node.id)
+            .collect::<Vec<_>>(),
+        vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+    );
+    assert_eq!(env.demands, vec![demand]);
+    assert_eq!(env.metrics, Metrics::default());
+    assert_eq!(env.budget, 42.0);
+    assert_eq!(env.step_count, 0);
+    assert_eq!(env.max_steps, 7);
+}
+
+#[test]
+fn explicit_environment_construction_returns_validation_errors() {
+    let duplicate = NodeId(7);
+    let invalid_world = World {
+        nodes: vec![Node { id: duplicate }, Node { id: duplicate }],
+        network: Network::new(),
+    };
+
+    let errors = [
+        (
+            Env::new(invalid_world, Vec::new(), 0.0, 1).unwrap_err(),
+            InitError::DuplicateNode(duplicate),
+        ),
+        (
+            Env::new(
+                toy_city(),
+                vec![Demand::new(NodeId(0), NodeId(99), 10)],
+                0.0,
+                1,
+            )
+            .unwrap_err(),
+            InitError::UnknownDemandEndpoint(NodeId(99)),
+        ),
+        (
+            Env::new(toy_city(), Vec::new(), f64::NAN, 1).unwrap_err(),
+            InitError::InvalidBudget,
+        ),
+    ];
+
+    for (actual, expected) in errors {
+        assert_eq!(actual, expected);
+    }
 }
 
 #[test]
