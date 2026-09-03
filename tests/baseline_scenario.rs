@@ -56,3 +56,20 @@ fn tabular_q_learning_repeats_the_best_action() {
         (best_action, best_action)
     );
 }
+
+#[test]
+fn tabular_q_learning_outperforms_random_policy() {
+    let mut env = baseline::scenario();
+    let learned_action = baseline::q_learning_action();
+    let learned_total_reward: f64 = (0..baseline::RANDOM_POLICY_EPISODES)
+        .map(|_| {
+            env.reset();
+            env.step(learned_action).unwrap().reward
+        })
+        .sum();
+    let episode_count = baseline::RANDOM_POLICY_EPISODES as f64;
+
+    assert!(
+        learned_total_reward / episode_count > baseline::random_policy_reward() / episode_count
+    );
+}
