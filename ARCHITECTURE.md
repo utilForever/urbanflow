@@ -55,7 +55,7 @@ Successful construction preserves the caller's node, edge, and demand order and 
 ## Core Model
 
 - `Action` describes an agent request. The only current action adds a typed directed edge.
-- `Env` owns the current `World`, demands, metrics, budget, step counter, and episode limit. It also retains the caller-defined initial world, demands, and budget so `reset` can start deterministic repeat episodes. It validates actions, commits successful transitions, calculates reward, and creates agent-facing snapshots.
+- `Env` owns the current `World`, demands, metrics, budget, step counter, and episode limit. It also retains the caller-defined initial world, demands, and budget so `reset` can start deterministic repeat episodes. It exposes valid affordable actions in deterministic order, validates submitted actions, commits successful transitions, calculates reward, and creates agent-facing snapshots.
 - `Env::new` validates caller-defined inputs and establishes complete initial state. `InitError` reports invalid topology, demand endpoints, and budgets separately from `StepError`.
 - `Env::toy_city` supplies the supported four-node world, demand, and budget to `Env::new`, keeping convenience construction on the same initialization and reset path.
 - `World` owns caller-defined nodes in their supplied order and a `Network`. `Network` stores typed directed edges in insertion order.
@@ -88,6 +88,7 @@ Successful construction preserves the caller's node, edge, and demand order and 
 - Served demand is limited by the smallest remaining capacity along its path. Unreachable and excess demand is unserved.
 - Congestion is the maximum edge load divided by capacity, or zero for a network without edges. Cost is the sum of edge construction costs.
 - Reward is `served demand - unserved demand - congestion - cost`.
+- Available actions enumerate stored nodes in `from`/`to` order and `EdgeKind::ALL` order, excluding invalid or unaffordable edges. The list is empty after the step limit.
 - Invalid steps do not change the world, budget, step counter, metrics, or observations.
 
 These contracts are observable behavior. Change them deliberately and update focused unit tests, integration tests, README examples, and this document together.
