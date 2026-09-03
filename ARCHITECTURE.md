@@ -44,6 +44,14 @@ flowchart TD
 
 Expected errors return before mutation. Overflow checks also run before mutation so a failed step does not leave partial state behind.
 
+## Scenario Lifecycle
+
+`Env::new(world, demands, budget, max_steps)` is the supported entry point for caller-defined scenarios. Before constructing any environment state, it validates topology, then demand endpoints, then the budget. Validation rejects duplicate node identifiers, initial edges with unknown endpoints, demands with unknown endpoints, and negative or non-finite budgets. The first error in that deterministic order is returned as `InitError`.
+
+Successful construction preserves the caller's node, edge, and demand order and stores the initial world, demands, and budget for later episodes. `reset()` restores those stored values, clears metrics, resets the step counter to zero, and returns an owned observation of the restored state. It leaves `max_steps` unchanged, so the environment keeps its current episode limit across resets. Replaying the same actions after a reset therefore produces the same results.
+
+`Env::toy_city(max_steps)` is a convenience constructor for the built-in scenario. It delegates to `Env::new`, so configurable and built-in scenarios share the same validation and reset path.
+
 ## Core Model
 
 - `Action` describes an agent request. The only current action adds a typed directed edge.

@@ -68,27 +68,45 @@ cargo test --all
 
 ```rust
 use urbanflow::action::Action;
-use urbanflow::env::{Env, StepError};
-use urbanflow::world::{EdgeKind, NodeId};
+use urbanflow::demand::Demand;
+use urbanflow::env::Env;
+use urbanflow::world::{EdgeKind, Network, Node, NodeId, World};
 
-fn main() -> Result<(), StepError> {
-    let mut env = Env::toy_city(100);
+fn main() {
+    let nodes = vec![
+        Node { id: NodeId(10) },
+        Node { id: NodeId(20) },
+    ];
+    let world = World {
+        nodes,
+        network: Network::new(),
+    };
+    let demands = vec![Demand::new(NodeId(10), NodeId(20), 15)];
+    let mut env = Env::new(world, demands, 10.0, 10).expect("scenario is valid");
 
-    let result = env.step(Action::AddEdge {
-        from: NodeId(1),
-        to: NodeId(2),
-        kind: EdgeKind::Road,
-    })?;
+    let action = Action::AddEdge {
+        from: NodeId(10),
+        to: NodeId(20),
+        kind: EdgeKind::Rail,
+    };
+    let first_episode = env.step(action).expect("step is valid");
 
-    println!("{result:#?}");
+    env.reset();
+    let repeated_episode = env.step(action).expect("step is valid after reset");
 
-    Ok(())
+    assert_eq!(repeated_episode, first_episode);
 }
 ```
 
-`Env::toy_city(max_steps)` is the short supported path for the built-in four-node world, demand `0 -> 3` with amount `10`, and a budget of `100.0`. It delegates to the same validated construction path as caller-defined environments.
+`Env::new` validates the initial topology, demand endpoints, and budget before constructing an environment. It preserves caller-supplied node, edge, and demand order so repeated episodes remain deterministic.
 
-Calling `reset()` restores the world, demands, and budget passed to `Env::new`, clears the episode metrics and step counter, and returns the restored observation. The configured maximum step count is preserved for the next episode.
+Calling `reset()` restores the world, demands, and budget passed to `Env::new`, clears the episode metrics and step counter, and returns the restored observation. It leaves `max_steps` unchanged.
+
+For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `100.0`, use the convenience constructor:
+
+```rust
+let mut env = urbanflow::env::Env::toy_city(100);
+```
 
 ## Simulation and rewards
 
