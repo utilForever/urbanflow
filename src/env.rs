@@ -39,6 +39,29 @@ fn reward(metrics: Metrics) -> f64 {
 }
 
 impl Env {
+    /// Validates caller-defined inputs before environment construction.
+    pub fn validate_inputs(
+        world: &World,
+        demands: &[Demand],
+        budget: f64,
+    ) -> Result<(), InitError> {
+        world.validate_topology()?;
+
+        for demand in demands {
+            for endpoint in [demand.origin, demand.destination] {
+                if !world.nodes.iter().any(|node| node.id == endpoint) {
+                    return Err(InitError::UnknownDemandEndpoint(endpoint));
+                }
+            }
+        }
+
+        if budget < 0.0 || !budget.is_finite() {
+            return Err(InitError::InvalidBudget);
+        }
+
+        Ok(())
+    }
+
     fn is_done(&self) -> bool {
         self.step_count >= self.max_steps
             || !self.world.nodes.iter().any(|from| {

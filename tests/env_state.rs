@@ -391,6 +391,76 @@ fn initialization_errors_distinguish_invalid_input_sources() {
 }
 
 #[test]
+fn initial_inputs_reject_the_first_unknown_demand_endpoint() {
+    let world = toy_city();
+
+    for (demands, unknown) in [
+        (
+            vec![
+                Demand::new(NodeId(99), NodeId(98), 10),
+                Demand::new(NodeId(97), NodeId(0), 20),
+            ],
+            NodeId(99),
+        ),
+        (
+            vec![
+                Demand::new(NodeId(0), NodeId(99), 10),
+                Demand::new(NodeId(98), NodeId(1), 20),
+            ],
+            NodeId(99),
+        ),
+    ] {
+        assert_eq!(
+            Env::validate_inputs(&world, &demands, 100.0),
+            Err(InitError::UnknownDemandEndpoint(unknown))
+        );
+    }
+}
+
+#[test]
+fn initial_inputs_accept_empty_demands_and_zero_budget() {
+    assert_eq!(Env::validate_inputs(&toy_city(), &[], 0.0), Ok(()));
+}
+
+#[test]
+fn initial_inputs_accept_known_demand_and_positive_finite_budget() {
+    let demands = [Demand::new(NodeId(0), NodeId(3), 10)];
+
+    assert_eq!(Env::validate_inputs(&toy_city(), &demands, 100.0), Ok(()));
+}
+
+#[test]
+fn initial_inputs_reject_negative_or_non_finite_budget() {
+    let world = toy_city();
+
+    for budget in [
+        -f64::MIN_POSITIVE,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NAN,
+    ] {
+        assert_eq!(
+            Env::validate_inputs(&world, &[], budget),
+            Err(InitError::InvalidBudget)
+        );
+    }
+}
+
+#[test]
+fn initial_inputs_validate_topology_before_demands_and_budget() {
+    let world = World {
+        nodes: vec![Node { id: NodeId(7) }, Node { id: NodeId(7) }],
+        network: Network::new(),
+    };
+    let demands = vec![Demand::new(NodeId(99), NodeId(98), 10)];
+
+    assert_eq!(
+        Env::validate_inputs(&world, &demands, f64::NAN),
+        Err(InitError::DuplicateNode(NodeId(7)))
+    );
+}
+
+#[test]
 fn unknown_node_from_does_not_advance_the_environment() {
     let env = reset_env();
 
