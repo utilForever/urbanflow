@@ -6,6 +6,8 @@
 
 The public API is organized around `Env`. A caller submits an `Action`, the environment validates and applies it to a `World`, the private simulation module allocates demand over the resulting `Network`, and the environment returns an `Observation`, `Metrics`, reward, and completion flag in a `StepResult`.
 
+The public `time` module provides an independent deterministic simulation clock. Vehicle movement does not consume or expose that clock yet.
+
 ```mermaid
 flowchart LR
     Caller["Caller or RL agent"] --> Action
@@ -69,6 +71,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - `Demand` describes an origin, destination, and requested amount.
 - `ConnectivityIndex` derives an adjacency list from a `Network` and finds directed shortest paths with breadth-first search.
 - `simulation::tick` allocates capacity to demands and returns aggregate `Metrics`. It is crate-private so callers cannot bypass the environment API accidentally.
+- `SimulationClock` starts at tick zero and advances by one checked integer tick through an explicit operation.
 - `Observation` is an owned snapshot of agent-visible state, including a variable-size node list in world order. `StepResult` combines that snapshot with reward, completion state, and metrics.
 
 ## Module Map
@@ -83,6 +86,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 | `observation` | Public        | Agent-facing state snapshots                                    |
 | `simulation`  | Crate-private | Demand allocation and metric calculation                        |
 | `step_result` | Public        | Successful step output                                          |
+| `time`        | Public        | Deterministic checked simulation time                           |
 | `world`       | Public        | Nodes, edges, modes, network storage, and toy-city construction |
 
 ## Simulation Contracts
@@ -94,6 +98,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - Served demand is limited by the smallest remaining capacity along its path. Unreachable and excess demand is unserved.
 - Congestion is the maximum edge load divided by capacity, or zero for a network without edges. Cost is the sum of edge construction costs.
 - Reward is `served demand - unserved demand - congestion - cost`.
+- Simulation time starts at tick zero. Each successful advance adds exactly one tick; overflow returns an error without changing the clock.
 - Available actions enumerate stored nodes in `from`/`to` order and `EdgeKind::ALL` order, excluding invalid or unaffordable edges. The list is empty after the step limit.
 - Invalid steps do not change the world, budget, step counter, metrics, or observations.
 
