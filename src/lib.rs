@@ -6,4 +6,5 @@ pub mod network;
 pub mod observation;
 mod simulation;
 pub mod step_result;
+pub mod time;
 pub mod world;
