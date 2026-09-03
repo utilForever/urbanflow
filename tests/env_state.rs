@@ -8,13 +8,7 @@ use urbanflow::world::{
 };
 
 fn reset_env() -> Env {
-    Env::new(
-        toy_city(),
-        vec![Demand::new(NodeId(0), NodeId(3), 10)],
-        100.0,
-        100,
-    )
-    .unwrap()
+    Env::toy_city(100)
 }
 
 fn assert_rejected_step_does_not_mutate(mut env: Env, action: Action, expected: StepError) {
@@ -79,6 +73,42 @@ fn explicit_environment_construction_initializes_complete_state() {
     assert_eq!(env.demands, vec![demand]);
     assert_eq!(env.metrics, Metrics::default());
     assert_eq!(env.budget, 42.0);
+    assert_eq!(env.step_count, 0);
+    assert_eq!(env.max_steps, 7);
+}
+
+#[test]
+fn toy_city_environment_constructs_the_supported_scenario() {
+    let env = Env::toy_city(7);
+
+    assert_eq!(
+        env.world
+            .nodes
+            .iter()
+            .map(|node| node.id)
+            .collect::<Vec<_>>(),
+        vec![NodeId(0), NodeId(1), NodeId(2), NodeId(3)]
+    );
+    assert_eq!(
+        env.world.network.edges(),
+        &[
+            Edge {
+                id: EdgeId(0),
+                from: NodeId(0),
+                to: NodeId(1),
+                kind: EdgeKind::Road,
+            },
+            Edge {
+                id: EdgeId(1),
+                from: NodeId(2),
+                to: NodeId(3),
+                kind: EdgeKind::Rail,
+            },
+        ]
+    );
+    assert_eq!(env.demands, vec![Demand::new(NodeId(0), NodeId(3), 10)]);
+    assert_eq!(env.metrics, Metrics::default());
+    assert_eq!(env.budget, 100.0);
     assert_eq!(env.step_count, 0);
     assert_eq!(env.max_steps, 7);
 }

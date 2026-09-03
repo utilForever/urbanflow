@@ -49,6 +49,7 @@ Expected errors return before mutation. Overflow checks also run before mutation
 - `Action` describes an agent request. The only current action adds a typed directed edge.
 - `Env` owns the current `World`, demands, metrics, budget, step counter, and episode limit. It also retains the caller-defined initial world, demands, and budget so `reset` can start deterministic repeat episodes. It validates actions, commits successful transitions, calculates reward, and creates agent-facing snapshots.
 - `Env::new` validates caller-defined inputs and establishes complete initial state. `InitError` reports invalid topology, demand endpoints, and budgets separately from `StepError`.
+- `Env::toy_city` supplies the supported four-node world, demand, and budget to `Env::new`, keeping convenience construction on the same initialization and reset path.
 - `World` owns caller-defined nodes in their supplied order and a `Network`. `Network` stores typed directed edges in insertion order.
 - `EdgeKind` currently supports Road and Rail and owns each mode's capacity and construction cost.
 - `Demand` describes an origin, destination, and requested amount.

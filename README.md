@@ -68,18 +68,11 @@ cargo test --all
 
 ```rust
 use urbanflow::action::Action;
-use urbanflow::demand::Demand;
 use urbanflow::env::{Env, StepError};
-use urbanflow::world::{EdgeKind, NodeId, toy_city};
+use urbanflow::world::{EdgeKind, NodeId};
 
 fn main() -> Result<(), StepError> {
-    let mut env = Env::new(
-        toy_city(),
-        vec![Demand::new(NodeId(0), NodeId(3), 10)],
-        100.0,
-        100,
-    )
-    .expect("example inputs are valid");
+    let mut env = Env::toy_city(100);
 
     let result = env.step(Action::AddEdge {
         from: NodeId(1),
@@ -92,6 +85,8 @@ fn main() -> Result<(), StepError> {
     Ok(())
 }
 ```
+
+`Env::toy_city(max_steps)` is the short supported path for the built-in four-node world, demand `0 -> 3` with amount `10`, and a budget of `100.0`. It delegates to the same validated construction path as caller-defined environments.
 
 Calling `reset()` restores the world, demands, and budget passed to `Env::new`, clears the episode metrics and step counter, and returns the restored observation. The configured maximum step count is preserved for the next episode.
 

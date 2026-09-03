@@ -4,7 +4,7 @@ use crate::metrics::Metrics;
 use crate::observation::Observation;
 use crate::simulation::tick;
 use crate::step_result::StepResult;
-use crate::world::{AddEdgeError, EdgeKind, NodeId, World};
+use crate::world::{AddEdgeError, EdgeKind, NodeId, World, toy_city};
 
 #[derive(Debug)]
 struct InitialState {
@@ -69,6 +69,17 @@ impl Env {
             step_count: 0,
             max_steps,
         })
+    }
+
+    /// Constructs the supported toy-city scenario with demand `0 -> 3` and budget `100.0`.
+    pub fn toy_city(max_steps: usize) -> Self {
+        Self::new(
+            toy_city(),
+            vec![Demand::new(NodeId(0), NodeId(3), 10)],
+            100.0,
+            max_steps,
+        )
+        .expect("toy-city inputs are valid")
     }
 
     /// Validates caller-defined inputs before environment construction.
