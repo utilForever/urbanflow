@@ -117,7 +117,7 @@ assert_eq!(clock.advance(), Ok(1));
 
 The clock is the time foundation for later vehicle movement. It is not yet integrated with `Env` or observations.
 
-`RailRoute` preserves caller-supplied edge order. `RailVehicle` stores capacity, fixed travel and dwell durations, and whether the vehicle is at a stop, traveling on an edge, or complete. Route validation and vehicle movement are not yet implemented.
+`RailRoute::new` preserves caller-supplied edge order while rejecting empty routes, missing or non-Rail edges, and disconnected consecutive edges. `RailVehicle::new` rejects zero capacity or durations and starts the vehicle at the first stop. Both return typed `RailInitError` values for invalid inputs. Vehicle movement is not yet implemented.
 
 For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `100.0`, use the convenience constructor:
 
