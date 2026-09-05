@@ -8,7 +8,7 @@ The public API is organized around `Env`. A caller submits an `Action`, the envi
 
 The public `time` module provides an independent deterministic simulation clock. Vehicle movement does not consume or expose that clock yet.
 
-The public `rail` module validates an ordered fixed route and the capacity and timing configuration for one Rail vehicle before constructing them. Tick transitions are not implemented yet.
+The public `rail` module validates an ordered fixed route and the capacity and timing configuration for one Rail vehicle before constructing them. It also tracks ordered passenger lifecycle records with explicit count transfers and service completion. Tick transitions and automatic stop processing are not implemented yet.
 
 ```mermaid
 flowchart LR
@@ -75,6 +75,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - `simulation::tick` allocates capacity to demands and returns aggregate `Metrics`. It is crate-private so callers cannot bypass the environment API accidentally.
 - `SimulationClock` starts at tick zero and advances by one checked integer tick through an explicit operation.
 - `RailRoute` validates and stores Rail edge identifiers in caller-supplied order. `RailVehicle` validates one vehicle's capacity and fixed edge-travel and stop-dwell durations, then starts it at the first stop.
+- `RailPassengers` owns one `PassengerState` per original demand in stored order. It exposes read-only counts and applies validated waiting-to-onboard and onboard-to-arrived transfers by demand index. Service completion preserves arrivals and marks all outstanding passengers unserved.
 - `Observation` is an owned snapshot of agent-visible state, including a variable-size node list in world order. `StepResult` combines that snapshot with reward, completion state, and metrics.
 
 ## Module Map
@@ -87,7 +88,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 | `metrics`     | Public        | Aggregate simulation output                                     |
 | `network`     | Public        | Derived reachability and path queries                           |
 | `observation` | Public        | Agent-facing state snapshots                                    |
-| `rail`        | Public        | Validated Rail routes, vehicle configuration, and state         |
+| `rail`        | Public        | Rail routes, vehicle state, and passenger lifecycle accounting  |
 | `simulation`  | Crate-private | Demand allocation and metric calculation                        |
 | `step_result` | Public        | Successful step output                                          |
 | `time`        | Public        | Deterministic checked simulation time                           |
@@ -104,6 +105,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - Reward is `served demand - unserved demand - congestion - cost`.
 - Simulation time starts at tick zero. Each successful advance adds exactly one tick; overflow returns an error without changing the clock.
 - Rail routes are non-empty, contain connected Rail edges that exist in the selected network, and preserve stored edge order. Vehicle capacity and travel and dwell durations are positive. A new vehicle starts at the first stop with its configured dwell time remaining.
+- Rail passenger records preserve every demand, including duplicates and zero amounts. All passengers start waiting, and waiting, onboard, arrived, and unserved counts always sum to the original demand amount. Transfers reject unknown demand indices or insufficient source counts before mutation. After final-stop arrivals are recorded, explicit completion moves all remaining passengers to unserved and is idempotent.
 - Available actions enumerate stored nodes in `from`/`to` order and `EdgeKind::ALL` order, excluding invalid or unaffordable edges. The list is empty after the step limit.
 - Invalid steps do not change the world, budget, step counter, metrics, or observations.
 
@@ -114,6 +116,7 @@ These contracts are observable behavior. Change them deliberately and update foc
 - Put transit data types, edge validation, capacities, and construction costs in `world`.
 - Put graph indexing, reachability, and path selection in `network`.
 - Put capacity allocation and aggregate metric calculation in `simulation`.
+- Keep Rail passenger lifecycle accounting in `rail`. Its explicit count transfers do not yet enforce route eligibility, vehicle capacity, or stop ordering; those belong to future stop processing. Vehicle tick integration remains separate work. The existing `Env` demand allocation and metrics do not consume lifecycle records.
 - Put episode completion, action orchestration, reward calculation, and snapshot creation in `env`.
 - Keep public data-transfer types small and owned so callers can retain observations and results without borrowing environment internals.
 - Build future bindings and services on the public crate API. Do not fork simulation rules into an interface layer.
