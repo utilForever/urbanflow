@@ -135,7 +135,19 @@ pub struct PassengerState {
     pub unserved: u32,
 }
 
+/// Invalid passenger transfers leave all lifecycle records unchanged.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RailPassengerError {
+    UnknownDemand(usize),
+    InsufficientWaiting,
+    InsufficientOnboard,
+}
+
 /// One lifecycle record per demand, kept in caller-supplied order.
+///
+/// The four counts always sum to the original demand amount. Transfers only
+/// account for passengers; the caller selects eligible demands and enforces
+/// vehicle capacity and stop order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RailPassengers {
     records: Vec<PassengerState>,
@@ -161,5 +173,39 @@ impl RailPassengers {
     /// Returns read-only records; duplicate and zero-amount demands are retained.
     pub fn records(&self) -> &[PassengerState] {
         &self.records
+    }
+
+    /// Moves waiting passengers onboard by their original demand index.
+    pub fn board(&mut self, demand_index: usize, amount: u32) -> Result<(), RailPassengerError> {
+        let record = self
+            .records
+            .get_mut(demand_index)
+            .ok_or(RailPassengerError::UnknownDemand(demand_index))?;
+        let waiting = record
+            .waiting
+            .checked_sub(amount)
+            .ok_or(RailPassengerError::InsufficientWaiting)?;
+
+        // Transferring from waiting bounds the sum by the original u32 demand.
+        record.onboard += amount;
+        record.waiting = waiting;
+        Ok(())
+    }
+
+    /// Records destination arrivals from passengers currently onboard.
+    pub fn alight(&mut self, demand_index: usize, amount: u32) -> Result<(), RailPassengerError> {
+        let record = self
+            .records
+            .get_mut(demand_index)
+            .ok_or(RailPassengerError::UnknownDemand(demand_index))?;
+        let onboard = record
+            .onboard
+            .checked_sub(amount)
+            .ok_or(RailPassengerError::InsufficientOnboard)?;
+
+        // Transferring from onboard bounds the sum by the original u32 demand.
+        record.arrived += amount;
+        record.onboard = onboard;
+        Ok(())
     }
 }
