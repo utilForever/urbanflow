@@ -112,3 +112,47 @@ fn lifecycle_transfers_handle_zero_and_maximum_demand() {
     passengers.alight(0, 1).unwrap();
     assert_counts(&passengers, &[(0, 0, u32::MAX, 0)]);
 }
+
+#[test]
+fn service_completion_marks_every_unfinished_passenger_unserved() {
+    let mut passengers = RailPassengers::new(&[
+        Demand::new(NodeId(0), NodeId(2), 10),
+        Demand::new(NodeId(9), NodeId(8), u32::MAX),
+        Demand::new(NodeId(2), NodeId(0), 0),
+        Demand::new(NodeId(0), NodeId(1), 3),
+    ]);
+    passengers.board(0, 6).unwrap();
+    passengers.alight(0, 4).unwrap();
+    passengers.board(3, 3).unwrap();
+    passengers.alight(3, 3).unwrap();
+
+    passengers.complete();
+    assert_counts(
+        &passengers,
+        &[
+            (0, 0, 4, 6),
+            (0, 0, 0, u32::MAX),
+            (0, 0, 0, 0),
+            (0, 0, 3, 0),
+        ],
+    );
+
+    let completed = passengers.clone();
+
+    passengers.complete();
+    assert_eq!(passengers, completed);
+    assert_eq!(
+        passengers.board(0, 1),
+        Err(RailPassengerError::InsufficientWaiting)
+    );
+    assert_eq!(
+        passengers.alight(0, 1),
+        Err(RailPassengerError::InsufficientOnboard)
+    );
+    assert_eq!(passengers, completed);
+
+    let mut empty = RailPassengers::new(&[]);
+
+    empty.complete();
+    assert!(empty.records().is_empty());
+}

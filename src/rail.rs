@@ -208,4 +208,16 @@ impl RailPassengers {
         record.onboard = onboard;
         Ok(())
     }
+
+    /// Ends service after final-stop arrivals have been recorded.
+    ///
+    /// All passengers still waiting or onboard become unserved, including
+    /// demands the fixed route could not carry. Repeated completion is a no-op.
+    pub fn complete(&mut self) {
+        for record in &mut self.records {
+            record.unserved = record.demand.amount - record.arrived;
+            record.waiting = 0;
+            record.onboard = 0;
+        }
+    }
 }
