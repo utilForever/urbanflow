@@ -104,6 +104,18 @@ Calling `reset()` restores the world, demands, and budget passed to `Env::new`, 
 
 Calling `available_actions()` returns an owned list of the valid affordable `AddEdge` actions in stored node `from`/`to` order and supported edge-kind order. It returns an empty list after the step limit is reached.
 
+`SimulationClock` provides deterministic discrete time that starts at tick zero and advances one checked integer tick per call:
+
+```rust
+use urbanflow::time::SimulationClock;
+
+let mut clock = SimulationClock::default();
+assert_eq!(clock.tick(), 0);
+assert_eq!(clock.advance(), Ok(1));
+```
+
+The clock is the time foundation for later vehicle movement. It is not yet integrated with `Env` or observations.
+
 For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `100.0`, use the convenience constructor:
 
 ```rust
