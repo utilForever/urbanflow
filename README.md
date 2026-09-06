@@ -110,6 +110,26 @@ For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `
 let mut env = urbanflow::env::Env::toy_city(100);
 ```
 
+## Baseline RL examples
+
+Run the deterministic random-policy and tabular Q-learning baselines with:
+
+```bash
+cargo run --example random_policy
+cargo run --example tabular_q_learning
+```
+
+The programs print:
+
+```text
+Random policy total reward over 100 episodes: -530.00
+Tabular Q-learning action after 100 episodes: AddEdge { from: NodeId(0), to: NodeId(1), kind: Rail }
+```
+
+Both examples use the same fixed seed and two-node scenario. The random policy averages `-5.30` reward per episode. Replaying the learned Rail action produces `12.25` reward per episode, so the learned policy outperforms that baseline. The results are reproducible because the scenario, seed, and action order are deterministic.
+
+These examples demonstrate the public environment API, not a production RL stack. The scenario has one decision state and one step per episode, and the learner stores only tabular action values. It does not provide deep RL, Python bindings, visualization tooling, or general multi-step training.
+
 ## Simulation and rewards
 
 Each edge kind has fixed capacity and construction cost:
