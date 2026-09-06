@@ -74,7 +74,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - `ConnectivityIndex` derives an adjacency list from a `Network` and finds directed shortest paths with breadth-first search.
 - `simulation::tick` allocates capacity to demands and returns aggregate `Metrics`. It is crate-private so callers cannot bypass the environment API accidentally.
 - `SimulationClock` starts at tick zero and advances by one checked integer tick through an explicit operation.
-- `RailRoute` stores Rail edge identifiers in caller-supplied order. `RailVehicle` stores one vehicle's capacity, fixed edge-travel and stop-dwell durations, and current stop, edge, or completion state.
+- `RailRoute` stores Rail edge identifiers in caller-supplied order. `RailVehicle` owns its route and stores one vehicle's capacity, fixed edge-travel and stop-dwell durations, and current stop, edge, or completion state.
 - `Observation` is an owned snapshot of agent-visible state, including a variable-size node list in world order. `StepResult` combines that snapshot with reward, completion state, and metrics.
 
 ## Module Map
@@ -103,7 +103,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - Congestion is the maximum edge load divided by capacity, or zero for a network without edges. Cost is the sum of edge construction costs.
 - Reward is `served demand - unserved demand - congestion - cost`.
 - Simulation time starts at tick zero. Each successful advance adds exactly one tick; overflow returns an error without changing the clock.
-- Rail routes preserve stored edge order. Vehicle state identifies positions by stop or edge index and stores dwell ticks remaining or travel ticks elapsed.
+- Rail routes preserve stored edge order. Vehicle state identifies positions relative to its owned route and stores dwell ticks remaining or travel ticks elapsed. `edge_index` selects a route edge; stop zero is the first edge's origin, and stop `i > 0` is route edge `i - 1`'s destination. The final stop index equals the route's edge count.
 - Available actions enumerate stored nodes in `from`/`to` order and `EdgeKind::ALL` order, excluding invalid or unaffordable edges. The list is empty after the step limit.
 - Invalid steps do not change the world, budget, step counter, metrics, or observations.
 

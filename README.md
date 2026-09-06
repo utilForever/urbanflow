@@ -117,7 +117,7 @@ assert_eq!(clock.advance(), Ok(1));
 
 The clock is the time foundation for later vehicle movement. It is not yet integrated with `Env` or observations.
 
-`RailRoute` preserves caller-supplied edge order. `RailVehicle` stores capacity, fixed travel and dwell durations, and whether the vehicle is at a stop, traveling on an edge, or complete. Route validation and vehicle movement are not yet implemented.
+`RailRoute` preserves caller-supplied edge order. `RailVehicle` owns its route and stores capacity, fixed travel and dwell durations, and whether the vehicle is at a stop, traveling on an edge, or complete. A traveling vehicle's `edge_index` selects `vehicle.route.edges[edge_index]`. Stop zero is the first edge's origin; stop `i > 0` is the destination of route edge `i - 1`, including the final stop at `route.edges.len()`. Route validation and vehicle movement are not yet implemented.
 
 For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `100.0`, use the convenience constructor:
 
