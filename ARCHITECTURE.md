@@ -8,7 +8,7 @@ The public API is organized around `Env`. A caller submits an `Action`, the envi
 
 The public `time` module provides an independent deterministic simulation clock. Vehicle movement does not consume or expose that clock yet.
 
-The public `rail` module validates an ordered fixed route and the capacity and timing configuration for one Rail vehicle before constructing them. It also tracks ordered passenger lifecycle records with explicit count transfers and service completion. Tick transitions and automatic stop processing are not implemented yet.
+The public `rail` module validates an ordered fixed route and the capacity and timing configuration for one Rail vehicle before constructing them. It also tracks ordered passenger lifecycle records with explicit count transfers, deterministic stop processing, and service completion. Stop processing alights passengers before boarding eligible waiting demand within vehicle capacity. Tick transitions and automatic stop invocation are not implemented yet.
 
 ```mermaid
 flowchart LR
@@ -74,8 +74,8 @@ The baseline is deliberately limited to one decision state and one step per epis
 - `ConnectivityIndex` derives an adjacency list from a `Network` and finds directed shortest paths with breadth-first search.
 - `simulation::tick` allocates capacity to demands and returns aggregate `Metrics`. It is crate-private so callers cannot bypass the environment API accidentally.
 - `SimulationClock` starts at tick zero and advances by one checked integer tick through an explicit operation.
-- `RailRoute` validates and stores Rail edge identifiers in caller-supplied order. `RailVehicle` owns a validated route, validates one vehicle's capacity and fixed edge-travel and stop-dwell durations, then starts it at the first stop. Read-only accessors expose the route, configuration, and current state.
-- `RailPassengers` owns one `PassengerState` per original demand in stored order. It exposes read-only counts and applies validated waiting-to-onboard and onboard-to-arrived transfers by demand index. Service completion preserves arrivals and marks all outstanding passengers unserved.
+- `RailRoute` validates and stores Rail edge identifiers in caller-supplied order, along with their stop node sequence captured from the validated network. Stop processing uses this owned sequence without requiring another network reference. `RailVehicle` owns a validated route, validates one vehicle's capacity and fixed edge-travel and stop-dwell durations, then starts it at the first stop. Read-only accessors expose the route, configuration, and current state.
+- `RailPassengers` owns one `PassengerState` per original demand in stored order. It exposes read-only counts and applies validated waiting-to-onboard and onboard-to-arrived transfers by demand index. `process_stop` applies those transfers atomically for a caller-selected route stop, alighting before boarding eligible demand within the supplied vehicle's capacity. Service completion preserves arrivals and marks all outstanding passengers unserved.
 - `Observation` is an owned snapshot of agent-visible state, including a variable-size node list in world order. `StepResult` combines that snapshot with reward, completion state, and metrics.
 
 ## Module Map
@@ -107,6 +107,9 @@ The baseline is deliberately limited to one decision state and one step per epis
 - Rail routes are non-empty, contain connected Rail edges that exist in the selected network, and preserve stored edge order. Vehicle capacity and travel and dwell durations are positive. A new vehicle starts at the first stop with its configured dwell time remaining.
 - Vehicle state identifies positions relative to its owned route and stores dwell ticks remaining or travel ticks elapsed. `edge_index` selects a route edge; stop zero is the first edge's origin, and stop `i > 0` is route edge `i - 1`'s destination. The final stop index equals the route's edge count.
 - Rail passenger records preserve every demand, including duplicates and zero amounts. All passengers start waiting, and waiting, onboard, arrived, and unserved counts always sum to the original demand amount. Transfers reject unknown demand indices or insufficient source counts before mutation. After final-stop arrivals are recorded, explicit completion moves all remaining passengers to unserved and is idempotent.
+- Rail stop processing alights all onboard destination passengers first, then boards waiting demand in stored order up to the remaining vehicle capacity. Boarding requires the current stop as origin and a destination strictly later in the route. Repeated nodes use the remaining stop sequence, so same-origin/destination demand boards only if that node appears again later. Excess and ineligible demand stays waiting; the final stop only alights.
+- Stop processing validates the stop index, checked aggregate occupancy, and initial capacity before transfers. It applies checked count transfers to a copy and commits only after the entire stop succeeds. Unknown stops, excess initial occupancy, and count overflow leave all passenger records unchanged. Every onboard record counts toward capacity, including explicit accounting transfers.
+- The caller invokes `process_stop(&vehicle, stop_index)` once per visit in route order, starting at zero, and calls `complete` after the final stop. Stop processing does not check or advance the vehicle state, consume ticks, or finish service automatically.
 - Available actions enumerate stored nodes in `from`/`to` order and `EdgeKind::ALL` order, excluding invalid or unaffordable edges. The list is empty after the step limit.
 - Invalid steps do not change the world, budget, step counter, metrics, or observations.
 
@@ -117,7 +120,7 @@ These contracts are observable behavior. Change them deliberately and update foc
 - Put transit data types, edge validation, capacities, and construction costs in `world`.
 - Put graph indexing, reachability, and path selection in `network`.
 - Put capacity allocation and aggregate metric calculation in `simulation`.
-- Keep Rail passenger lifecycle accounting in `rail`. Its explicit count transfers do not yet enforce route eligibility, vehicle capacity, or stop ordering; those belong to future stop processing. Vehicle tick integration remains separate work. The existing `Env` demand allocation and metrics do not consume lifecycle records.
+- Keep Rail passenger lifecycle accounting and stop processing in `rail`. Explicit count transfers remain accounting primitives; `process_stop` enforces route eligibility and vehicle capacity. Stop sequencing and vehicle tick integration remain separate work. The existing `Env` demand allocation and metrics do not consume lifecycle records.
 - Put episode completion, action orchestration, reward calculation, and snapshot creation in `env`.
 - Keep public data-transfer types small and owned so callers can retain observations and results without borrowing environment internals.
 - Build future bindings and services on the public crate API. Do not fork simulation rules into an interface layer.
