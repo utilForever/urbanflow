@@ -269,6 +269,25 @@ fn stops_only_board_current_origins_with_later_destinations() {
 }
 
 #[test]
+fn repeated_route_nodes_use_the_remaining_stop_sequence() {
+    let vehicle = vehicle(&[0, 1, 0, 2], 3);
+    let mut passengers = RailPassengers::new(&[
+        Demand::new(NodeId(0), NodeId(0), 1),
+        Demand::new(NodeId(1), NodeId(0), 2),
+        Demand::new(NodeId(0), NodeId(2), 1),
+    ]);
+
+    passengers.process_stop(&vehicle, 0).unwrap();
+    assert_counts(&passengers, &[(0, 1, 0, 0), (2, 0, 0, 0), (0, 1, 0, 0)]);
+
+    passengers.process_stop(&vehicle, 1).unwrap();
+    assert_counts(&passengers, &[(0, 1, 0, 0), (1, 1, 0, 0), (0, 1, 0, 0)]);
+
+    passengers.process_stop(&vehicle, 2).unwrap();
+    assert_counts(&passengers, &[(0, 0, 1, 0), (1, 0, 1, 0), (0, 1, 0, 0)]);
+}
+
+#[test]
 fn invalid_stops_and_excess_occupancy_leave_all_records_unchanged() {
     let vehicle = vehicle(&[0, 1, 2], 3);
 
@@ -293,4 +312,48 @@ fn invalid_stops_and_excess_occupancy_leave_all_records_unchanged() {
         Err(RailPassengerError::CapacityExceeded)
     );
     assert_eq!(passengers, before);
+}
+
+#[test]
+fn stop_processing_checks_aggregate_occupancy_overflow() {
+    let vehicle = vehicle(&[0, 1, 2], u32::MAX);
+
+    let mut passengers = RailPassengers::new(&[
+        Demand::new(NodeId(0), NodeId(1), u32::MAX),
+        Demand::new(NodeId(0), NodeId(2), 1),
+    ]);
+    passengers.board(0, u32::MAX).unwrap();
+    passengers.board(1, 1).unwrap();
+
+    let before = passengers.clone();
+
+    assert_eq!(
+        passengers.process_stop(&vehicle, 1),
+        Err(RailPassengerError::CountOverflow)
+    );
+    assert_eq!(passengers, before);
+}
+
+#[test]
+fn stops_handle_maximum_capacity_and_empty_demand() {
+    let vehicle = vehicle(&[0, 1, 2], u32::MAX);
+    let mut passengers = RailPassengers::new(&[
+        Demand::new(NodeId(0), NodeId(1), u32::MAX),
+        Demand::new(NodeId(1), NodeId(2), u32::MAX),
+    ]);
+
+    passengers.process_stop(&vehicle, 0).unwrap();
+    passengers.process_stop(&vehicle, 1).unwrap();
+    assert_counts(&passengers, &[(0, 0, u32::MAX, 0), (0, u32::MAX, 0, 0)]);
+
+    passengers.process_stop(&vehicle, 2).unwrap();
+    assert_counts(&passengers, &[(0, 0, u32::MAX, 0), (0, 0, u32::MAX, 0)]);
+
+    let mut empty = RailPassengers::new(&[]);
+
+    for stop_index in 0..=2 {
+        empty.process_stop(&vehicle, stop_index).unwrap();
+    }
+
+    assert!(empty.records().is_empty());
 }
