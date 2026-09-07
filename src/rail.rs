@@ -59,10 +59,12 @@ impl RailRoute {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RailVehicleState {
     AtStop {
+        /// Zero is the first edge's origin; stop i > 0 is edge i - 1's destination.
         stop_index: usize,
         dwell_ticks_remaining: u64,
     },
     Traveling {
+        /// Zero-based index into the vehicle's route edges.
         edge_index: usize,
         travel_ticks_elapsed: u64,
     },
@@ -70,8 +72,9 @@ pub enum RailVehicleState {
 }
 
 /// One fixed-route Rail vehicle and its current state.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RailVehicle {
+    route: RailRoute,
     capacity: u32,
     travel_ticks_per_edge: u64,
     dwell_ticks_per_stop: u64,
@@ -80,6 +83,7 @@ pub struct RailVehicle {
 
 impl RailVehicle {
     pub fn new(
+        route: RailRoute,
         capacity: u32,
         travel_ticks_per_edge: u64,
         dwell_ticks_per_stop: u64,
@@ -97,6 +101,7 @@ impl RailVehicle {
         }
 
         Ok(Self {
+            route,
             capacity,
             travel_ticks_per_edge,
             dwell_ticks_per_stop,
@@ -105,6 +110,10 @@ impl RailVehicle {
                 dwell_ticks_remaining: dwell_ticks_per_stop,
             },
         })
+    }
+
+    pub const fn route(&self) -> &RailRoute {
+        &self.route
     }
 
     pub const fn capacity(&self) -> u32 {
