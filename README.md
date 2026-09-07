@@ -29,6 +29,7 @@
 - Modeling caller-defined node sets and directed road and rail networks with capacity and passenger demand.
 - Returning owned observations with node identifiers in caller-supplied world order.
 - Defining ordered fixed Rail routes and tick-based state for one Rail vehicle.
+- Tracking ordered demand batches as waiting, onboard, arrived, or unserved Rail passengers.
 - Keeping simulation and environment logic in a reusable Rust library crate.
 - Supporting future training, evaluation, and integration workflows around reinforcement learning agents.
 - Measuring served and unserved demand, congestion, and network construction cost.
@@ -120,6 +121,24 @@ The clock is the time foundation for later vehicle movement. It is not yet integ
 `RailRoute::new` preserves caller-supplied edge order while rejecting empty routes, missing or non-Rail edges, and disconnected consecutive edges. `RailVehicle::new(route, capacity, travel_ticks_per_edge, dwell_ticks_per_stop)` takes ownership of a validated route, rejects zero capacity or durations, and starts the vehicle at the first stop. Both constructors return typed `RailInitError` values for invalid inputs. Vehicle movement is not yet implemented.
 
 `RailVehicle::route()` exposes the vehicle's route through a read-only reference. A traveling vehicle's `edge_index` selects `vehicle.route().edges()[edge_index]`. Stop zero is the first edge's origin; stop `i > 0` is the destination of route edge `i - 1`, including the final stop at `vehicle.route().edges().len()`.
+
+`RailPassengers::new(&demands)` creates one lifecycle record per demand in supplied order, including duplicate and zero-amount demands. Every passenger starts waiting. The read-only `records()` slice exposes each original demand and its `waiting`, `onboard`, `arrived`, and `unserved` counts, whose sum always equals the requested amount.
+
+```rust
+use urbanflow::demand::Demand;
+use urbanflow::rail::RailPassengers;
+use urbanflow::world::NodeId;
+
+let mut passengers = RailPassengers::new(&[Demand::new(NodeId(0), NodeId(2), 10)]);
+passengers.board(0, 6).unwrap();
+passengers.alight(0, 6).unwrap();
+passengers.complete();
+
+let record = passengers.records()[0];
+assert_eq!((record.waiting, record.onboard, record.arrived, record.unserved), (0, 0, 6, 4));
+```
+
+`board` and `alight` transfer counts by the original demand index, returning `RailPassengerError` without mutation for unknown indices or insufficient source counts. They provide passenger accounting; route eligibility, vehicle capacity, automatic stop processing, and tick integration are not implemented yet. Call `complete()` after recording final-stop arrivals to mark every remaining waiting or onboard passenger unserved, including demand the route could not carry. Repeated completion leaves the records unchanged. This lifecycle is separate from `Env`'s existing aggregate demand metrics.
 
 For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `100.0`, use the convenience constructor:
 
