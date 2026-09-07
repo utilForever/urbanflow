@@ -150,6 +150,7 @@ pub enum RailPassengerError {
     UnknownDemand(usize),
     InsufficientWaiting,
     InsufficientOnboard,
+    CountOverflow,
 }
 
 /// One lifecycle record per demand, kept in caller-supplied order.
@@ -194,9 +195,12 @@ impl RailPassengers {
             .waiting
             .checked_sub(amount)
             .ok_or(RailPassengerError::InsufficientWaiting)?;
+        let onboard = record
+            .onboard
+            .checked_add(amount)
+            .ok_or(RailPassengerError::CountOverflow)?;
 
-        // Transferring from waiting bounds the sum by the original u32 demand.
-        record.onboard += amount;
+        record.onboard = onboard;
         record.waiting = waiting;
         Ok(())
     }
@@ -211,9 +215,12 @@ impl RailPassengers {
             .onboard
             .checked_sub(amount)
             .ok_or(RailPassengerError::InsufficientOnboard)?;
+        let arrived = record
+            .arrived
+            .checked_add(amount)
+            .ok_or(RailPassengerError::CountOverflow)?;
 
-        // Transferring from onboard bounds the sum by the original u32 demand.
-        record.arrived += amount;
+        record.arrived = arrived;
         record.onboard = onboard;
         Ok(())
     }
