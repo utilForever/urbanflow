@@ -1,5 +1,7 @@
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle, RailVehicleState};
+use urbanflow::rail::{
+    RailPassengerError, RailPassengers, RailRoute, RailStepError, RailVehicle, RailVehicleState,
+};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, NodeId};
 
@@ -161,4 +163,46 @@ fn repeated_nodes_process_passengers_once_per_visit() {
 
     assert_eq!(vehicle.state(), RailVehicleState::Complete);
     assert_eq!(passengers.records()[1].arrived, 1);
+}
+
+#[test]
+fn stop_errors_preserve_vehicle_clock_and_passengers() {
+    for (capacity, amounts, error) in [
+        (1, [1, 1], RailPassengerError::CapacityExceeded),
+        (u32::MAX, [u32::MAX, 1], RailPassengerError::CountOverflow),
+    ] {
+        // Reject invalid occupancy both before boarding and on final arrival.
+        for at_arrival in [false, true] {
+            let mut vehicle = vehicle(&[0, 1], capacity, 1, 1);
+            let mut clock = SimulationClock::default();
+            let mut passengers = RailPassengers::new(&[
+                Demand::new(NodeId(0), NodeId(1), amounts[0]),
+                Demand::new(NodeId(0), NodeId(1), amounts[1]),
+            ]);
+
+            if at_arrival {
+                vehicle.advance(&mut clock, &mut passengers).unwrap();
+            } else {
+                passengers.board(0, amounts[0]).unwrap();
+            }
+
+            passengers.board(1, amounts[1]).unwrap();
+
+            let before = (vehicle.clone(), clock.tick(), passengers.clone());
+
+            assert_eq!(
+                vehicle.advance(&mut clock, &mut passengers),
+                Err(RailStepError::Passengers(error))
+            );
+            assert_eq!(
+                (&vehicle, clock.tick(), &passengers),
+                (&before.0, before.1, &before.2)
+            );
+
+            passengers.alight(1, amounts[1]).unwrap();
+
+            assert!(vehicle.advance(&mut clock, &mut passengers).is_ok());
+            assert_eq!(clock.tick(), before.1 + 1);
+        }
+    }
 }

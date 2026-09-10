@@ -34,6 +34,9 @@ impl SimulationClock {
 #[cfg(test)]
 mod tests {
     use super::{SimulationClock, SimulationTimeError};
+    use crate::demand::Demand;
+    use crate::rail::{RailPassengers, RailRoute, RailStepError, RailVehicle, RailVehicleState};
+    use crate::world::{EdgeKind, Network, NodeId};
 
     #[test]
     fn overflow_does_not_advance_the_clock() {
@@ -41,5 +44,41 @@ mod tests {
 
         assert_eq!(clock.advance(), Err(SimulationTimeError::Overflow));
         assert_eq!(clock.tick(), u64::MAX);
+    }
+
+    #[test]
+    fn clock_overflow_preserves_rail_state_and_passengers_at_every_transition() {
+        let mut network = Network::new();
+        let edge = network
+            .add_edge(NodeId(0), NodeId(1), EdgeKind::Rail)
+            .unwrap();
+        let route = RailRoute::new(&network, vec![edge]).unwrap();
+        let mut vehicle = RailVehicle::new(route, 1, 2, 2).unwrap();
+        let mut passengers = RailPassengers::new(&[Demand::new(NodeId(0), NodeId(1), 2)]);
+        let mut clock = SimulationClock::default();
+
+        for _ in 0..4 {
+            let before = (vehicle.clone(), passengers.clone());
+            let mut full_clock = SimulationClock { tick: u64::MAX };
+
+            assert_eq!(
+                vehicle.advance(&mut full_clock, &mut passengers),
+                Err(RailStepError::Time(SimulationTimeError::Overflow))
+            );
+            assert_eq!((&vehicle, &passengers), (&before.0, &before.1));
+            assert_eq!(full_clock.tick(), u64::MAX);
+
+            vehicle.advance(&mut clock, &mut passengers).unwrap();
+        }
+
+        let mut full_clock = SimulationClock { tick: u64::MAX };
+
+        assert_eq!(
+            vehicle.advance(&mut full_clock, &mut passengers),
+            Ok(RailVehicleState::Complete)
+        );
+        assert_eq!(full_clock.tick(), u64::MAX);
+        assert_eq!(passengers.records()[0].arrived, 1);
+        assert_eq!(passengers.records()[0].unserved, 1);
     }
 }
