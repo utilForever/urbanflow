@@ -1,6 +1,7 @@
 use urbanflow::demand::Demand;
 use urbanflow::rail::{
-    RailPassengers, RailPosition, RailRoute, RailSnapshot, RailVehicle, RailVehicleState,
+    RailPassengerError, RailPassengers, RailPosition, RailRoute, RailSnapshot, RailVehicle,
+    RailVehicleState,
 };
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeId, EdgeKind, Network, NodeId};
@@ -137,4 +138,40 @@ fn retained_snapshots_repeat_exact_positions_and_passenger_counts() {
             );
         }
     }
+}
+
+#[test]
+fn snapshot_checks_occupancy_without_changing_manual_passenger_records() {
+    let vehicle = vehicle(1);
+    let clock = SimulationClock::default();
+    let empty = vehicle.snapshot(&clock, &RailPassengers::new(&[])).unwrap();
+
+    assert_eq!(empty.occupancy, 0);
+    assert!(empty.passengers.is_empty());
+
+    let mut passengers = RailPassengers::new(&[
+        Demand::new(NodeId(8), NodeId(3), u32::MAX),
+        Demand::new(NodeId(8), NodeId(3), 1),
+    ]);
+
+    passengers.board(0, u32::MAX).unwrap();
+
+    let snapshot = vehicle.snapshot(&clock, &passengers).unwrap();
+
+    assert_eq!((snapshot.occupancy, snapshot.capacity), (u32::MAX, 1));
+
+    passengers.board(1, 1).unwrap();
+
+    let before = (vehicle.clone(), clock.tick(), passengers.clone());
+
+    assert_eq!(
+        vehicle.snapshot(&clock, &passengers),
+        Err(RailPassengerError::CountOverflow)
+    );
+    assert_eq!(
+        (&vehicle, clock.tick(), &passengers),
+        (&before.0, before.1, &before.2)
+    );
+    assert_eq!(snapshot.passengers[1].waiting, 1);
+    assert_eq!(snapshot.passengers[1].onboard, 0);
 }
