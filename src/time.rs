@@ -1,7 +1,7 @@
 //! Deterministic discrete simulation time.
 
 /// A checked integer clock that starts at tick zero.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct SimulationClock {
     tick: u64,
 }

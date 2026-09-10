@@ -28,7 +28,7 @@
 
 - Modeling caller-defined node sets and directed road and rail networks with capacity and passenger demand.
 - Returning owned observations with node identifiers in caller-supplied world order.
-- Defining ordered fixed Rail routes and tick-based state for one Rail vehicle.
+- Advancing one Rail vehicle along an ordered fixed route with deterministic dwell and travel ticks.
 - Tracking ordered demand batches as waiting, onboard, arrived, or unserved Rail passengers.
 - Processing Rail stops with deterministic alighting, boarding priority, and vehicle capacity limits.
 - Keeping simulation and environment logic in a reusable Rust library crate.
@@ -117,9 +117,9 @@ assert_eq!(clock.tick(), 0);
 assert_eq!(clock.advance(), Ok(1));
 ```
 
-The clock is the time foundation for later vehicle movement. It is not yet integrated with `Env` or observations.
+`RailVehicle::advance` uses this clock for vehicle movement. The clock is not yet integrated with `Env` or observations.
 
-`RailRoute::new` preserves caller-supplied edge order and stores the corresponding stop nodes while rejecting empty routes, missing or non-Rail edges, and disconnected consecutive edges. `RailVehicle::new(route, capacity, travel_ticks_per_edge, dwell_ticks_per_stop)` takes ownership of a validated route, rejects zero capacity or durations, and starts the vehicle at the first stop. Both constructors return typed `RailInitError` values for invalid inputs. Vehicle movement is not yet implemented.
+`RailRoute::new` preserves caller-supplied edge order and stores the corresponding stop nodes while rejecting empty routes, missing or non-Rail edges, and disconnected consecutive edges. `RailVehicle::new(route, capacity, travel_ticks_per_edge, dwell_ticks_per_stop)` takes ownership of a validated route, rejects zero capacity or durations, and starts the vehicle at the first stop. Both constructors return typed `RailInitError` values for invalid inputs.
 
 `RailVehicle::route()` exposes the vehicle's route through a read-only reference. A traveling vehicle's `edge_index` selects `vehicle.route().edges()[edge_index]`. Stop zero is the first edge's origin; stop `i > 0` is the destination of route edge `i - 1`, including the final stop at `vehicle.route().edges().len()`.
 
@@ -127,27 +127,37 @@ The clock is the time foundation for later vehicle movement. It is not yet integ
 
 ```rust
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle};
+use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle, RailVehicleState};
+use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, NodeId};
 
 let mut network = Network::new();
 let edge = network.add_edge(NodeId(0), NodeId(2), EdgeKind::Rail).unwrap();
 let route = RailRoute::new(&network, vec![edge]).unwrap();
-let vehicle = RailVehicle::new(route, 6, 1, 1).unwrap();
+
+let mut vehicle = RailVehicle::new(route, 6, 1, 1).unwrap();
+let mut clock = SimulationClock::default();
 let mut passengers = RailPassengers::new(&[Demand::new(NodeId(0), NodeId(2), 10)]);
-passengers.process_stop(&vehicle, 0).unwrap();
-passengers.process_stop(&vehicle, 1).unwrap();
-passengers.complete();
+
+assert_eq!(vehicle.advance(&mut clock, &mut passengers).unwrap(),
+    RailVehicleState::Traveling { edge_index: 0, travel_ticks_elapsed: 0 });
+assert_eq!(vehicle.advance(&mut clock, &mut passengers).unwrap(), RailVehicleState::Complete);
+assert_eq!(clock.tick(), 2);
 
 let record = passengers.records()[0];
+
 assert_eq!((record.waiting, record.onboard, record.arrived, record.unserved), (0, 0, 6, 4));
 ```
 
+`advance(&mut clock, &mut passengers)` returns the resulting `RailVehicleState` and advances time by one tick while service is active. The first tick processes the initial stop, then consumes one dwell tick. Consuming the last dwell tick starts travel with zero elapsed ticks; each subsequent tick advances edge progress. Reaching the configured travel duration processes the next stop immediately and starts its full dwell. At the final stop, it alights passengers, marks outstanding demand unserved, and enters `Complete` without another dwell. Further advances leave the vehicle, clock, and passengers unchanged.
+
+Keep the same clock and passenger records for the service, and let `advance` handle time and stop processing. `RailStepError` distinguishes clock overflow from passenger errors; either leaves all three inputs unchanged. Time overflow is checked first. Movement uses fixed integer durations for one vehicle; reverse service, multiple vehicles, and traffic interactions remain future work.
+
 `process_stop(&vehicle, stop_index)` first alights all onboard passengers whose destination is the current stop, then boards waiting demand in stored order up to the remaining vehicle capacity. Only demand originating at the current stop with a destination appearing strictly later in the route may board. Repeated route nodes are evaluated relative to this visit; a same-origin/destination demand can board only when that node occurs again later. Excess or ineligible demand remains waiting. The final stop only alights passengers.
 
-Stop processing uses checked count arithmetic and returns `RailPassengerError` without changing any record for an unknown stop, initial occupancy above capacity, or count overflow. Occupancy includes every onboard record, including passengers boarded through the explicit accounting API. Call this operation once per stop visit in route order, starting at zero; it does not check or advance vehicle state. Automatic stop processing and tick integration remain future work.
+Stop processing uses checked count arithmetic and returns `RailPassengerError` without changing any record for an unknown stop, initial occupancy above capacity, or count overflow. Occupancy includes every onboard record, including passengers boarded through the explicit accounting API. `advance` calls this operation once per visit in route order, starting at zero. Manual callers must follow the same order; `process_stop` itself does not check or advance vehicle state.
 
-`board` and `alight` remain explicit accounting operations by original demand index, rejecting unknown indices or insufficient source counts without mutation. Call `complete()` after recording final-stop arrivals to mark every remaining waiting or onboard passenger unserved, including demand the route could not carry. Repeated completion leaves the records unchanged. This lifecycle is separate from `Env`'s existing aggregate demand metrics.
+`board` and `alight` remain explicit accounting operations by original demand index, rejecting unknown indices or insufficient source counts without mutation. For manual stop processing, call `complete()` after recording final-stop arrivals to mark every remaining waiting or onboard passenger unserved, including demand the route could not carry. `advance` handles completion automatically. Repeated completion leaves the records unchanged. This lifecycle is separate from `Env`'s existing aggregate demand metrics.
 
 For the built-in four-node world, demand `0 -> 3` with amount `10`, and budget `100.0`, use the convenience constructor:
 
