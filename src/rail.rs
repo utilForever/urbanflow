@@ -285,6 +285,14 @@ impl RailPassengers {
         &self.records
     }
 
+    fn occupancy(&self) -> Result<u32, RailPassengerError> {
+        self.records.iter().try_fold(0u32, |total, record| {
+            total
+                .checked_add(record.onboard)
+                .ok_or(RailPassengerError::CountOverflow)
+        })
+    }
+
     /// Moves waiting passengers onboard by their original demand index.
     pub fn board(&mut self, demand_index: usize, amount: u32) -> Result<(), RailPassengerError> {
         let record = self
@@ -346,11 +354,7 @@ impl RailPassengers {
             .get(stop_index..)
             .and_then(|stops| stops.split_first())
             .ok_or(RailPassengerError::UnknownStop(stop_index))?;
-        let onboard = self.records.iter().try_fold(0u32, |total, record| {
-            total
-                .checked_add(record.onboard)
-                .ok_or(RailPassengerError::CountOverflow)
-        })?;
+        let onboard = self.occupancy()?;
 
         let mut remaining = vehicle
             .capacity
