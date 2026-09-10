@@ -114,3 +114,51 @@ fn ticks_repeat_exact_dwell_travel_and_passenger_transitions() {
         }
     }
 }
+
+#[test]
+fn one_tick_durations_do_not_skip_travel_or_add_a_final_dwell() {
+    let mut vehicle = vehicle(&[0, 1], 1, 1, 1);
+    let mut clock = SimulationClock::default();
+    let mut passengers = RailPassengers::new(&[]);
+
+    assert_eq!(
+        vehicle.advance(&mut clock, &mut passengers),
+        Ok(RailVehicleState::Traveling {
+            edge_index: 0,
+            travel_ticks_elapsed: 0
+        })
+    );
+    assert_eq!(clock.tick(), 1);
+    assert_eq!(
+        vehicle.advance(&mut clock, &mut passengers),
+        Ok(RailVehicleState::Complete)
+    );
+    assert_eq!(clock.tick(), 2);
+    assert!(passengers.records().is_empty());
+}
+
+#[test]
+fn repeated_nodes_process_passengers_once_per_visit() {
+    let mut vehicle = vehicle(&[0, 1, 0, 2], 2, 1, 2);
+    let mut clock = SimulationClock::default();
+    let mut passengers = RailPassengers::new(&[
+        Demand::new(NodeId(0), NodeId(0), 2),
+        Demand::new(NodeId(0), NodeId(2), 1),
+    ]);
+
+    for tick in 1..=9 {
+        vehicle.advance(&mut clock, &mut passengers).unwrap();
+
+        assert_eq!(
+            passengers.records()[0].arrived,
+            if tick < 6 { 0 } else { 2 }
+        );
+        assert_eq!(
+            passengers.records()[1].onboard,
+            if (6..9).contains(&tick) { 1 } else { 0 }
+        );
+    }
+
+    assert_eq!(vehicle.state(), RailVehicleState::Complete);
+    assert_eq!(passengers.records()[1].arrived, 1);
+}
