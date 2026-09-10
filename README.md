@@ -31,6 +31,7 @@
 - Advancing one Rail vehicle along an ordered fixed route with deterministic dwell and travel ticks.
 - Tracking ordered demand batches as waiting, onboard, arrived, or unserved Rail passengers.
 - Processing Rail stops with deterministic alighting, boarding priority, and vehicle capacity limits.
+- Retaining owned movement snapshots with tick, vehicle position, occupancy, and passenger counts.
 - Keeping simulation and environment logic in a reusable Rust library crate.
 - Supporting future training, evaluation, and integration workflows around reinforcement learning agents.
 - Measuring served and unserved demand, congestion, and network construction cost.
@@ -127,7 +128,7 @@ assert_eq!(clock.advance(), Ok(1));
 
 ```rust
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle, RailVehicleState};
+use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailVehicle, RailVehicleState};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, NodeId};
 
@@ -139,10 +140,23 @@ let mut vehicle = RailVehicle::new(route, 6, 1, 1).unwrap();
 let mut clock = SimulationClock::default();
 let mut passengers = RailPassengers::new(&[Demand::new(NodeId(0), NodeId(2), 10)]);
 
+let initial = vehicle.snapshot(&clock, &passengers).unwrap();
+
 assert_eq!(vehicle.advance(&mut clock, &mut passengers).unwrap(),
     RailVehicleState::Traveling { edge_index: 0, travel_ticks_elapsed: 0 });
+
+let traveling = vehicle.snapshot(&clock, &passengers).unwrap();
+
+assert_eq!((traveling.tick, traveling.occupancy, traveling.capacity), (1, 6, 6));
+assert_eq!(traveling.position, RailPosition::Traveling {
+    edge_index: 0, edge, from: NodeId(0), to: NodeId(2),
+    travel_ticks_elapsed: 0, travel_ticks_total: 1,
+});
+
 assert_eq!(vehicle.advance(&mut clock, &mut passengers).unwrap(), RailVehicleState::Complete);
 assert_eq!(clock.tick(), 2);
+assert_eq!((initial.tick, initial.occupancy, initial.passengers[0].waiting), (0, 0, 10));
+assert_eq!(traveling.passengers[0].onboard, 6);
 
 let record = passengers.records()[0];
 
@@ -152,6 +166,12 @@ assert_eq!((record.waiting, record.onboard, record.arrived, record.unserved), (0
 `advance(&mut clock, &mut passengers)` returns the resulting `RailVehicleState` and advances time by one tick while service is active. The first tick processes the initial stop, then consumes one dwell tick. Consuming the last dwell tick starts travel with zero elapsed ticks; each subsequent tick advances edge progress. Reaching the configured travel duration processes the next stop immediately and starts its full dwell. At the final stop, it alights passengers, marks outstanding demand unserved, and enters `Complete` without another dwell. Further advances leave the vehicle, clock, and passengers unchanged.
 
 Keep the same clock and passenger records for the service, and let `advance` handle time and stop processing. `RailStepError` distinguishes clock overflow from passenger errors; either leaves all three inputs unchanged. Time overflow is checked first. Movement uses fixed integer durations for one vehicle; reverse service, multiple vehicles, and traffic interactions remain future work.
+
+`snapshot(&clock, &passengers)` reads that same service into an owned `RailSnapshot` without advancing time or processing stops. It contains the supplied tick, a `RailPosition`, occupancy, capacity, and a `Vec<PassengerState>` in original demand order, including duplicates and zero amounts. Later ticks or changes to the returned snapshot do not affect each other.
+
+`RailPosition::AtStop` identifies the route stop index, actual `NodeId`, and remaining dwell ticks. `Traveling` identifies the route edge index, actual `EdgeId`, endpoint nodes, and integer elapsed and total travel ticks. Elapsed ticks start at zero and stay below the total; arrival changes the position to the next stop or `Complete`. `Complete` retains the final stop index and node, including on routes that revisit a node. Consumers own coordinates, animation timing, and serialization.
+
+Snapshot occupancy sums every onboard record using the same checked arithmetic as stop processing. Explicit accounting transfers can exceed vehicle capacity; the snapshot reports that value without clamping. If the total exceeds `u32::MAX`, it returns `RailPassengerError::CountOverflow` without changing the service. Passenger lifecycle counts remain per demand and are separate from `Env` metrics and observations.
 
 `process_stop(&vehicle, stop_index)` first alights all onboard passengers whose destination is the current stop, then boards waiting demand in stored order up to the remaining vehicle capacity. Only demand originating at the current stop with a destination appearing strictly later in the route may board. Repeated route nodes are evaluated relative to this visit; a same-origin/destination demand can board only when that node occurs again later. Excess or ineligible demand remains waiting. The final stop only alights passengers.
 
