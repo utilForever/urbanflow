@@ -1,5 +1,5 @@
 use crate::demand::Demand;
-use crate::world::{EdgeId, EdgeKind, Network};
+use crate::world::{EdgeId, EdgeKind, Network, NodeId};
 
 /// Errors found while validating Rail service inputs.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,6 +17,7 @@ pub enum RailInitError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RailRoute {
     edges: Vec<EdgeId>,
+    stops: Vec<NodeId>,
 }
 
 impl RailRoute {
@@ -48,7 +49,11 @@ impl RailRoute {
             }
         }
 
-        Ok(Self { edges })
+        let stops = std::iter::once(network.edges()[edges[0].0].from)
+            .chain(edges.iter().map(|id| network.edges()[id.0].to))
+            .collect();
+
+        Ok(Self { edges, stops })
     }
 
     pub fn edges(&self) -> &[EdgeId] {
@@ -150,13 +155,16 @@ pub enum RailPassengerError {
     UnknownDemand(usize),
     InsufficientWaiting,
     InsufficientOnboard,
+    UnknownStop(usize),
+    CapacityExceeded,
+    CountOverflow,
 }
 
 /// One lifecycle record per demand, kept in caller-supplied order.
 ///
-/// The four counts always sum to the original demand amount. Transfers only
-/// account for passengers; the caller selects eligible demands and enforces
-/// vehicle capacity and stop order.
+/// The four counts always sum to the original demand amount. Explicit transfers
+/// only account for passengers; `process_stop` also enforces route eligibility
+/// and vehicle capacity. The caller controls stop order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RailPassengers {
     records: Vec<PassengerState>,
@@ -194,9 +202,12 @@ impl RailPassengers {
             .waiting
             .checked_sub(amount)
             .ok_or(RailPassengerError::InsufficientWaiting)?;
+        let onboard = record
+            .onboard
+            .checked_add(amount)
+            .ok_or(RailPassengerError::CountOverflow)?;
 
-        // Transferring from waiting bounds the sum by the original u32 demand.
-        record.onboard += amount;
+        record.onboard = onboard;
         record.waiting = waiting;
         Ok(())
     }
@@ -211,10 +222,72 @@ impl RailPassengers {
             .onboard
             .checked_sub(amount)
             .ok_or(RailPassengerError::InsufficientOnboard)?;
+        let arrived = record
+            .arrived
+            .checked_add(amount)
+            .ok_or(RailPassengerError::CountOverflow)?;
 
-        // Transferring from onboard bounds the sum by the original u32 demand.
-        record.arrived += amount;
+        record.arrived = arrived;
         record.onboard = onboard;
+        Ok(())
+    }
+
+    /// Alights destination passengers, then boards waiting demand in stored order.
+    ///
+    /// Only demands originating at this stop with a destination strictly later
+    /// in the route may board. All onboard records count toward vehicle capacity.
+    /// Invalid stop indices, excess initial occupancy, or arithmetic overflow
+    /// leave every record unchanged, even when passengers could alight here.
+    ///
+    /// The caller invokes this once per stop visit in route order, starting at
+    /// zero. This operation does not advance the vehicle or complete service.
+    pub fn process_stop(
+        &mut self,
+        vehicle: &RailVehicle,
+        stop_index: usize,
+    ) -> Result<(), RailPassengerError> {
+        let (&stop, later_stops) = vehicle
+            .route
+            .stops
+            .get(stop_index..)
+            .and_then(|stops| stops.split_first())
+            .ok_or(RailPassengerError::UnknownStop(stop_index))?;
+        let onboard = self.records.iter().try_fold(0u32, |total, record| {
+            total
+                .checked_add(record.onboard)
+                .ok_or(RailPassengerError::CountOverflow)
+        })?;
+
+        let mut remaining = vehicle
+            .capacity
+            .checked_sub(onboard)
+            .ok_or(RailPassengerError::CapacityExceeded)?;
+        let mut next = self.clone();
+
+        for index in 0..next.records.len() {
+            let record = next.records[index];
+
+            if record.demand.destination == stop {
+                next.alight(index, record.onboard)?;
+                remaining = remaining
+                    .checked_add(record.onboard)
+                    .ok_or(RailPassengerError::CountOverflow)?;
+            }
+        }
+
+        for index in 0..next.records.len() {
+            let record = next.records[index];
+
+            if record.demand.origin == stop && later_stops.contains(&record.demand.destination) {
+                let amount = record.waiting.min(remaining);
+                next.board(index, amount)?;
+                remaining = remaining
+                    .checked_sub(amount)
+                    .ok_or(RailPassengerError::CapacityExceeded)?;
+            }
+        }
+
+        *self = next;
         Ok(())
     }
 
