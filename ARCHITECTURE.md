@@ -6,9 +6,9 @@
 
 The public API is organized around `Env`. A caller submits an `Action`, the environment validates and applies it to a `World`, the private simulation module allocates demand over the resulting `Network`, and the environment returns an `Observation`, `Metrics`, reward, and completion flag in a `StepResult`.
 
-The public `time` module provides an independent deterministic simulation clock. Vehicle movement does not consume or expose that clock yet.
+The public `time` module provides a deterministic simulation clock. `RailVehicle::advance` advances the caller's clock together with one vehicle's movement and stop processing, independently of `Env`.
 
-The public `rail` module validates an ordered fixed route and the capacity and timing configuration for one Rail vehicle before constructing them. It also tracks ordered passenger lifecycle records with explicit count transfers, deterministic stop processing, and service completion. Stop processing alights passengers before boarding eligible waiting demand within vehicle capacity. Tick transitions and automatic stop invocation are not implemented yet.
+The public `rail` module validates an ordered fixed route and the capacity and timing configuration for one Rail vehicle before constructing them. It tracks ordered passenger lifecycle records and advances the vehicle through dwell, travel, and completion states one tick at a time. Stop processing runs automatically on the first tick and on each arrival, alighting passengers before boarding eligible waiting demand within vehicle capacity. Final arrival completes service and marks outstanding demand unserved.
 
 ```mermaid
 flowchart LR
@@ -75,6 +75,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 - `simulation::tick` allocates capacity to demands and returns aggregate `Metrics`. It is crate-private so callers cannot bypass the environment API accidentally.
 - `SimulationClock` starts at tick zero and advances by one checked integer tick through an explicit operation.
 - `RailRoute` validates and stores Rail edge identifiers in caller-supplied order, along with their stop node sequence captured from the validated network. Stop processing uses this owned sequence without requiring another network reference. `RailVehicle` owns a validated route, validates one vehicle's capacity and fixed edge-travel and stop-dwell durations, then starts it at the first stop. Read-only accessors expose the route, configuration, and current state.
+- `RailVehicle::advance` coordinates one checked clock tick, vehicle movement, and automatic passenger stop processing. It returns the resulting `RailVehicleState` or a typed `RailStepError`, preserving all inputs on failure. Completion is a no-op on later calls.
 - `RailPassengers` owns one `PassengerState` per original demand in stored order. It exposes read-only counts and applies validated waiting-to-onboard and onboard-to-arrived transfers by demand index. `process_stop` applies those transfers atomically for a caller-selected route stop, alighting before boarding eligible demand within the supplied vehicle's capacity. Service completion preserves arrivals and marks all outstanding passengers unserved.
 - `Observation` is an owned snapshot of agent-visible state, including a variable-size node list in world order. `StepResult` combines that snapshot with reward, completion state, and metrics.
 
@@ -88,7 +89,7 @@ The baseline is deliberately limited to one decision state and one step per epis
 | `metrics`     | Public        | Aggregate simulation output                                     |
 | `network`     | Public        | Derived reachability and path queries                           |
 | `observation` | Public        | Agent-facing state snapshots                                    |
-| `rail`        | Public        | Rail routes, vehicle state, and passenger lifecycle accounting  |
+| `rail`        | Public        | Rail routes, vehicle tick transitions, and passenger lifecycle  |
 | `simulation`  | Crate-private | Demand allocation and metric calculation                        |
 | `step_result` | Public        | Successful step output                                          |
 | `time`        | Public        | Deterministic checked simulation time                           |
@@ -103,13 +104,16 @@ The baseline is deliberately limited to one decision state and one step per epis
 - Served demand is limited by the smallest remaining capacity along its path. Unreachable and excess demand is unserved.
 - Congestion is the maximum edge load divided by capacity, or zero for a network without edges. Cost is the sum of edge construction costs.
 - Reward is `served demand - unserved demand - congestion - cost`.
-- Simulation time starts at tick zero. Each successful advance adds exactly one tick; overflow returns an error without changing the clock.
+- Simulation time starts at tick zero. Each successful clock advance adds exactly one tick; overflow returns an error without changing the clock.
 - Rail routes are non-empty, contain connected Rail edges that exist in the selected network, and preserve stored edge order. Vehicle capacity and travel and dwell durations are positive. A new vehicle starts at the first stop with its configured dwell time remaining.
 - Vehicle state identifies positions relative to its owned route and stores dwell ticks remaining or travel ticks elapsed. `edge_index` selects a route edge; stop zero is the first edge's origin, and stop `i > 0` is route edge `i - 1`'s destination. The final stop index equals the route's edge count.
+- Each active `RailVehicle::advance` consumes exactly one tick. The initial stop is processed before the first dwell tick is consumed. Consuming the last dwell tick starts travel at zero elapsed ticks; later calls advance integer progress until the configured travel duration is reached. Arrival processes the next stop on that same tick and starts its full dwell, without consuming a dwell tick on arrival.
+- Final arrival processes alighting, marks all remaining waiting or onboard passengers unserved, and enters `Complete` immediately, without a final dwell. Further advances return `Complete` without changing time or passenger records.
+- Vehicle advancement checks a copy of the clock before any stop processing, then commits the clock and vehicle state only after passenger processing succeeds. `RailStepError::Time` and `RailStepError::Passengers` distinguish failures; time overflow takes precedence. Stop processing is already atomic, and completion cannot fail, so errors preserve the vehicle, clock, and all passenger records together.
 - Rail passenger records preserve every demand, including duplicates and zero amounts. All passengers start waiting, and waiting, onboard, arrived, and unserved counts always sum to the original demand amount. Transfers reject unknown demand indices or insufficient source counts before mutation. After final-stop arrivals are recorded, explicit completion moves all remaining passengers to unserved and is idempotent.
 - Rail stop processing alights all onboard destination passengers first, then boards waiting demand in stored order up to the remaining vehicle capacity. Boarding requires the current stop as origin and a destination strictly later in the route. Repeated nodes use the remaining stop sequence, so same-origin/destination demand boards only if that node appears again later. Excess and ineligible demand stays waiting; the final stop only alights.
 - Stop processing validates the stop index, checked aggregate occupancy, and initial capacity before transfers. It applies checked count transfers to a copy and commits only after the entire stop succeeds. Unknown stops, excess initial occupancy, and count overflow leave all passenger records unchanged. Every onboard record counts toward capacity, including explicit accounting transfers.
-- The caller invokes `process_stop(&vehicle, stop_index)` once per visit in route order, starting at zero, and calls `complete` after the final stop. Stop processing does not check or advance the vehicle state, consume ticks, or finish service automatically.
+- The caller keeps the same clock and passenger records for one service and invokes `advance`, which processes each stop once per visit and completes at the final stop. Manual callers of `process_stop(&vehicle, stop_index)` must follow route order starting at zero and call `complete` after the final stop; they must not duplicate the automatic calls. The standalone stop operation does not check or advance vehicle state or consume ticks.
 - Available actions enumerate stored nodes in `from`/`to` order and `EdgeKind::ALL` order, excluding invalid or unaffordable edges. The list is empty after the step limit.
 - Invalid steps do not change the world, budget, step counter, metrics, or observations.
 
@@ -120,7 +124,7 @@ These contracts are observable behavior. Change them deliberately and update foc
 - Put transit data types, edge validation, capacities, and construction costs in `world`.
 - Put graph indexing, reachability, and path selection in `network`.
 - Put capacity allocation and aggregate metric calculation in `simulation`.
-- Keep Rail passenger lifecycle accounting and stop processing in `rail`. Explicit count transfers remain accounting primitives; `process_stop` enforces route eligibility and vehicle capacity. Stop sequencing and vehicle tick integration remain separate work. The existing `Env` demand allocation and metrics do not consume lifecycle records.
+- Keep Rail passenger lifecycle accounting, stop processing, and vehicle tick transitions in `rail`. Explicit count transfers remain accounting primitives; `process_stop` enforces route eligibility and vehicle capacity, and `RailVehicle::advance` sequences stops and clock ticks. The existing `Env` demand allocation and metrics do not consume lifecycle records. Multiple vehicles, reverse service, traffic interactions, and movement snapshots remain separate work.
 - Put episode completion, action orchestration, reward calculation, and snapshot creation in `env`.
 - Keep public data-transfer types small and owned so callers can retain observations and results without borrowing environment internals.
 - Build future bindings and services on the public crate API. Do not fork simulation rules into an interface layer.

@@ -1,4 +1,5 @@
 use crate::demand::Demand;
+use crate::time::{SimulationClock, SimulationTimeError};
 use crate::world::{EdgeId, EdgeKind, Network, NodeId};
 
 /// Errors found while validating Rail service inputs.
@@ -77,6 +78,13 @@ pub enum RailVehicleState {
     Complete,
 }
 
+/// A failed tick leaves the vehicle, clock, and passenger records unchanged.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RailStepError {
+    Time(SimulationTimeError),
+    Passengers(RailPassengerError),
+}
+
 /// One fixed-route Rail vehicle and its current state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RailVehicle {
@@ -137,6 +145,91 @@ impl RailVehicle {
     pub const fn state(&self) -> RailVehicleState {
         self.state
     }
+
+    /// Advances one service tick and returns the resulting vehicle state.
+    ///
+    /// The first tick processes stop zero before consuming dwell time. Each
+    /// later stop is processed on arrival, once per visit. Consuming the last
+    /// dwell tick starts travel at zero elapsed ticks; subsequent ticks advance
+    /// edge progress. Final arrival alights passengers, marks those remaining
+    /// unserved, and completes immediately without a final dwell.
+    ///
+    /// Pass the same clock and passenger records throughout this service; do not
+    /// separately advance the clock or process stops. Time overflow is checked
+    /// before passenger processing. Any error leaves all three inputs unchanged.
+    /// Advancing a completed vehicle is a no-op, including for the clock.
+    pub fn advance(
+        &mut self,
+        clock: &mut SimulationClock,
+        passengers: &mut RailPassengers,
+    ) -> Result<RailVehicleState, RailStepError> {
+        if self.state == RailVehicleState::Complete {
+            return Ok(self.state);
+        }
+
+        let mut next_clock = clock.clone();
+        next_clock.advance().map_err(RailStepError::Time)?;
+
+        let next_state = match self.state {
+            RailVehicleState::AtStop {
+                stop_index,
+                dwell_ticks_remaining,
+            } => {
+                if stop_index == 0 && dwell_ticks_remaining == self.dwell_ticks_per_stop {
+                    passengers
+                        .process_stop(self, 0)
+                        .map_err(RailStepError::Passengers)?;
+                }
+
+                if dwell_ticks_remaining > 1 {
+                    RailVehicleState::AtStop {
+                        stop_index,
+                        dwell_ticks_remaining: dwell_ticks_remaining - 1,
+                    }
+                } else {
+                    RailVehicleState::Traveling {
+                        edge_index: stop_index,
+                        travel_ticks_elapsed: 0,
+                    }
+                }
+            }
+            RailVehicleState::Traveling {
+                edge_index,
+                travel_ticks_elapsed,
+            } => {
+                // Elapsed ticks stay below the positive configured duration.
+                let elapsed = travel_ticks_elapsed + 1;
+
+                if elapsed < self.travel_ticks_per_edge {
+                    RailVehicleState::Traveling {
+                        edge_index,
+                        travel_ticks_elapsed: elapsed,
+                    }
+                } else {
+                    let stop_index = edge_index + 1;
+
+                    passengers
+                        .process_stop(self, stop_index)
+                        .map_err(RailStepError::Passengers)?;
+
+                    if stop_index == self.route.edges.len() {
+                        passengers.complete();
+                        RailVehicleState::Complete
+                    } else {
+                        RailVehicleState::AtStop {
+                            stop_index,
+                            dwell_ticks_remaining: self.dwell_ticks_per_stop,
+                        }
+                    }
+                }
+            }
+            RailVehicleState::Complete => unreachable!(),
+        };
+
+        self.state = next_state;
+        *clock = next_clock;
+        Ok(self.state)
+    }
 }
 
 /// Aggregated passenger counts for one demand during Rail service.
@@ -164,7 +257,7 @@ pub enum RailPassengerError {
 ///
 /// The four counts always sum to the original demand amount. Explicit transfers
 /// only account for passengers; `process_stop` also enforces route eligibility
-/// and vehicle capacity. The caller controls stop order.
+/// and vehicle capacity. `RailVehicle::advance` controls automatic stop order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RailPassengers {
     records: Vec<PassengerState>,
@@ -239,8 +332,9 @@ impl RailPassengers {
     /// Invalid stop indices, excess initial occupancy, or arithmetic overflow
     /// leave every record unchanged, even when passengers could alight here.
     ///
-    /// The caller invokes this once per stop visit in route order, starting at
-    /// zero. This operation does not advance the vehicle or complete service.
+    /// `RailVehicle::advance` invokes this once per stop visit in route order,
+    /// starting at zero. Manual callers must follow the same order; this operation
+    /// does not advance the vehicle or complete service.
     pub fn process_stop(
         &mut self,
         vehicle: &RailVehicle,
