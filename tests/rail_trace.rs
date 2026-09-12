@@ -1,5 +1,5 @@
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailVehicle};
+use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailVehicle, RailVehicleState};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeId, EdgeKind, Network, NodeId};
 
@@ -125,5 +125,79 @@ fn trace_retains_initial_and_each_tick_in_deterministic_order() {
                 counts
             );
         }
+    }
+}
+
+#[test]
+fn tick_limits_include_initial_frame_and_report_completion_at_the_boundary() {
+    for (limit, last_tick, completed) in [
+        (0, 0, false),
+        (1, 1, false),
+        (5, 5, false),
+        (6, 6, true),
+        (7, 6, true),
+        (u64::MAX, 6, true),
+    ] {
+        let (mut vehicle, mut clock, mut passengers) = service();
+        let initial = vehicle.snapshot(&clock, &passengers).unwrap();
+        let trace = vehicle
+            .record_trace(&mut clock, &mut passengers, limit)
+            .unwrap();
+
+        assert_eq!(trace.completed, completed);
+        assert_eq!(trace.snapshots.len(), last_tick as usize + 1);
+        assert_eq!(trace.snapshots[0], initial);
+        assert_eq!(clock.tick(), last_tick);
+        assert_eq!(vehicle.state() == RailVehicleState::Complete, completed);
+        assert_eq!(
+            trace.snapshots.last().unwrap(),
+            &vehicle.snapshot(&clock, &passengers).unwrap()
+        );
+
+        if !completed {
+            assert!(
+                passengers
+                    .records()
+                    .iter()
+                    .all(|record| record.unserved == 0)
+            );
+        }
+    }
+}
+
+#[test]
+fn recording_can_continue_from_a_nonzero_tick_without_changing_retained_frames() {
+    let (mut vehicle, mut clock, mut passengers) = service();
+    let first = vehicle
+        .record_trace(&mut clock, &mut passengers, 2)
+        .unwrap();
+    let retained = first.clone();
+    let second = vehicle
+        .record_trace(&mut clock, &mut passengers, 1)
+        .unwrap();
+
+    assert!(!second.completed);
+    assert_eq!(second.snapshots.len(), 2);
+    assert_eq!(second.snapshots[0], first.snapshots[2]);
+    assert_eq!(second.snapshots[1].tick, 3);
+    assert_eq!(clock.tick(), 3);
+    assert_eq!(first, retained);
+
+    let final_trace = vehicle
+        .record_trace(&mut clock, &mut passengers, 3)
+        .unwrap();
+
+    assert!(final_trace.completed);
+    assert_eq!(final_trace.snapshots.last().unwrap().tick, 6);
+
+    for limit in [0, 10] {
+        let completed = vehicle
+            .record_trace(&mut clock, &mut passengers, limit)
+            .unwrap();
+
+        assert!(completed.completed);
+        assert_eq!(completed.snapshots.len(), 1);
+        assert_eq!(completed.snapshots.last(), final_trace.snapshots.last());
+        assert_eq!(clock.tick(), 6);
     }
 }
