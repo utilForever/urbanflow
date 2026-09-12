@@ -32,6 +32,7 @@
 - Tracking ordered demand batches as waiting, onboard, arrived, or unserved Rail passengers.
 - Processing Rail stops with deterministic alighting, boarding priority, and vehicle capacity limits.
 - Retaining owned movement snapshots with tick, vehicle position, occupancy, and passenger counts.
+- Recording deterministic Rail traces with an initial snapshot, each service tick, and an explicit tick limit.
 - Keeping simulation and environment logic in a reusable Rust library crate.
 - Supporting future training, evaluation, and integration workflows around reinforcement learning agents.
 - Measuring served and unserved demand, congestion, and network construction cost.
@@ -172,6 +173,33 @@ Keep the same clock and passenger records for the service, and let `advance` han
 `RailPosition::AtStop` identifies the route stop index, actual `NodeId`, and remaining dwell ticks. `Traveling` identifies the route edge index, actual `EdgeId`, endpoint nodes, and integer elapsed and total travel ticks. Elapsed ticks start at zero and stay below the total; arrival changes the position to the next stop or `Complete`. `Complete` retains the final stop index and node, including on routes that revisit a node. Consumers own coordinates, animation timing, and serialization.
 
 Snapshot occupancy sums every onboard record using the same checked arithmetic as stop processing. Explicit accounting transfers can exceed vehicle capacity; the snapshot reports that value without clamping. If the total exceeds `u32::MAX`, it returns `RailPassengerError::CountOverflow` without changing the service. Passenger lifecycle counts remain per demand and are separate from `Env` metrics and observations.
+
+`record_trace(&mut clock, &mut passengers, max_ticks)` runs the same service through `advance` and collects an owned `RailTrace`. Its `snapshots` start with the current state before any advancement, followed by one frame per tick in order. `completed` is true when the service finishes, including on the last allowed tick; otherwise the partial trace reports `completed == false`. Repeating the same initial service and limit produces an equal trace.
+
+```rust
+use urbanflow::demand::Demand;
+use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle};
+use urbanflow::time::SimulationClock;
+use urbanflow::world::{EdgeKind, Network, NodeId};
+
+let mut network = Network::new();
+let edge = network.add_edge(NodeId(0), NodeId(2), EdgeKind::Rail).unwrap();
+let route = RailRoute::new(&network, vec![edge]).unwrap();
+
+let mut vehicle = RailVehicle::new(route, 6, 1, 1).unwrap();
+let mut clock = SimulationClock::default();
+let mut passengers = RailPassengers::new(&[Demand::new(NodeId(0), NodeId(2), 10)]);
+
+let trace = vehicle.record_trace(&mut clock, &mut passengers, 2).unwrap();
+
+assert!(trace.completed);
+assert_eq!(trace.snapshots.len(), 3); // Initial tick 0, travel tick 1, completion tick 2.
+assert_eq!(trace.snapshots[0].passengers[0].waiting, 10);
+assert_eq!(trace.snapshots[2].passengers[0].arrived, 6);
+assert_eq!(trace.snapshots[2].passengers[0].unserved, 4);
+```
+
+The limit counts advances during this call, excluding the initial snapshot, even if recording starts at a nonzero tick. A zero limit or an already completed service returns one snapshot. Reaching the limit leaves the service at the last recorded tick without marking outstanding passengers unserved; another call can continue from that state. Its initial frame repeats the previous trace's last frame. Errors return `RailStepError` and no trace: an initial snapshot failure changes nothing, while a later failure preserves earlier successful ticks and leaves the failed tick unchanged. Frames are allocated as recording progresses, so choose a tick limit appropriate for the number of passenger records copied into every frame. This is an in-memory trace; storage formats and browser transport remain consumer work.
 
 `process_stop(&vehicle, stop_index)` first alights all onboard passengers whose destination is the current stop, then boards waiting demand in stored order up to the remaining vehicle capacity. Only demand originating at the current stop with a destination appearing strictly later in the route may board. Repeated route nodes are evaluated relative to this visit; a same-origin/destination demand can board only when that node occurs again later. Excess or ineligible demand remains waiting. The final stop only alights passengers.
 
