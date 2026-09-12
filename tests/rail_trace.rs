@@ -1,5 +1,8 @@
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailVehicle, RailVehicleState};
+use urbanflow::rail::{
+    RailPassengerError, RailPassengers, RailPosition, RailRoute, RailStepError, RailVehicle,
+    RailVehicleState,
+};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeId, EdgeKind, Network, NodeId};
 
@@ -199,5 +202,31 @@ fn recording_can_continue_from_a_nonzero_tick_without_changing_retained_frames()
         assert_eq!(completed.snapshots.len(), 1);
         assert_eq!(completed.snapshots.last(), final_trace.snapshots.last());
         assert_eq!(clock.tick(), 6);
+    }
+}
+
+#[test]
+fn initial_snapshot_and_tick_errors_are_propagated_without_mutation() {
+    for (amounts, error) in [
+        ([3, 0], RailPassengerError::CapacityExceeded),
+        ([u32::MAX, 1], RailPassengerError::CountOverflow),
+    ] {
+        let (mut vehicle, mut clock, _) = service();
+        let mut passengers = RailPassengers::new(&[
+            Demand::new(NodeId(8), NodeId(3), amounts[0]),
+            Demand::new(NodeId(8), NodeId(3), amounts[1]),
+        ]);
+
+        passengers.board(0, amounts[0]).unwrap();
+        passengers.board(1, amounts[1]).unwrap();
+
+        let before = (vehicle.clone(), passengers.clone());
+
+        assert_eq!(
+            vehicle.record_trace(&mut clock, &mut passengers, 10),
+            Err(RailStepError::Passengers(error))
+        );
+        assert_eq!((vehicle, passengers), before);
+        assert_eq!(clock.tick(), 0);
     }
 }
