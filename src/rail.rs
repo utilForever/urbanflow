@@ -115,6 +115,15 @@ pub struct RailSnapshot {
     pub passengers: Vec<PassengerState>,
 }
 
+/// A bounded, owned sequence of Rail movement snapshots in tick order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RailTrace {
+    /// Initial state followed by one snapshot per successful tick.
+    pub snapshots: Vec<RailSnapshot>,
+    /// False when the tick limit stopped recording before service completion.
+    pub completed: bool,
+}
+
 /// A failed tick leaves the vehicle, clock, and passenger records unchanged.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RailStepError {
@@ -231,6 +240,51 @@ impl RailVehicle {
             occupancy,
             capacity: self.capacity,
             passengers: passengers.records.clone(),
+        })
+    }
+
+    /// Records the current state, then advances at most `max_ticks` service ticks.
+    ///
+    /// Uses `advance` and `snapshot` to preserve movement and passenger ordering.
+    /// The initial snapshot does not consume the limit. A zero limit returns
+    /// only that snapshot; an already completed service also returns one frame.
+    /// Completion on the last allowed tick sets `RailTrace::completed` to true.
+    /// Otherwise, reaching the limit returns a partial trace with it set to false,
+    /// leaving the service at its last recorded tick without forcing completion.
+    /// The limit counts advances in this call, even when the clock is nonzero.
+    ///
+    /// Supply the same clock and passengers used throughout this service, as for
+    /// `advance`. An initial snapshot error leaves all inputs unchanged. A later
+    /// error returns no trace and preserves earlier successful ticks; the failed
+    /// tick remains atomic. Snapshot errors map to `RailStepError::Passengers`.
+    /// Choose a limit suitable for an in-memory trace: each frame owns a copy of
+    /// every passenger record, and frames are allocated as recording progresses.
+    pub fn record_trace(
+        &mut self,
+        clock: &mut SimulationClock,
+        passengers: &mut RailPassengers,
+        max_ticks: u64,
+    ) -> Result<RailTrace, RailStepError> {
+        let mut snapshots = vec![
+            self.snapshot(clock, passengers)
+                .map_err(RailStepError::Passengers)?,
+        ];
+
+        for _ in 0..max_ticks {
+            if self.state == RailVehicleState::Complete {
+                break;
+            }
+
+            self.advance(clock, passengers)?;
+            snapshots.push(
+                self.snapshot(clock, passengers)
+                    .map_err(RailStepError::Passengers)?,
+            );
+        }
+
+        Ok(RailTrace {
+            snapshots,
+            completed: self.state == RailVehicleState::Complete,
         })
     }
 
