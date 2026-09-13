@@ -1,5 +1,7 @@
+use std::fmt::Write;
+
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailRoute, RailTrace, RailVehicle};
+use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailTrace, RailVehicle};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, Node, NodeId, World};
 
@@ -37,4 +39,100 @@ pub fn scenario() -> (World, RailTrace) {
     };
 
     (world, trace)
+}
+
+/// Embeds a world and its recorded trace in an offline HTML document.
+///
+/// Inputs come from the same valid scenario. The fixed JSON schema contains
+/// only integers and enum labels, so no caller-supplied text needs escaping.
+/// IDs and u64 values are strings to preserve precision in JavaScript; passenger
+/// counts fit exactly in JavaScript numbers. No serialization dependency or
+/// browser-side simulation is needed.
+pub fn render(world: &World, trace: &RailTrace) -> String {
+    let mut data = String::from("{\"nodes\":[");
+
+    for (index, node) in world.nodes.iter().enumerate() {
+        if index > 0 {
+            data.push(',');
+        }
+
+        write!(data, "\"{}\"", node.id.0).unwrap();
+    }
+
+    data.push_str("],\"edges\":[");
+
+    for (index, edge) in world.network.edges().iter().enumerate() {
+        if index > 0 {
+            data.push(',');
+        }
+
+        let kind = match edge.kind {
+            EdgeKind::Road => "Road",
+            EdgeKind::Rail => "Rail",
+        };
+        write!(
+            data,
+            r#"{{"id":"{}","from":"{}","to":"{}","kind":"{kind}"}}"#,
+            edge.id.0, edge.from.0, edge.to.0
+        )
+        .unwrap();
+    }
+
+    write!(
+        data,
+        "],\"trace\":{{\"completed\":{},\"snapshots\":[",
+        trace.completed
+    )
+    .unwrap();
+
+    for (index, snapshot) in trace.snapshots.iter().enumerate() {
+        if index > 0 {
+            data.push(',');
+        }
+
+        write!(data, "{{\"tick\":\"{}\",\"position\":", snapshot.tick).unwrap();
+
+        match snapshot.position {
+            RailPosition::AtStop { stop_index, node, dwell_ticks_remaining } => write!(
+                data,
+                r#"{{"kind":"AtStop","stop_index":"{stop_index}","node":"{}","dwell_ticks_remaining":"{dwell_ticks_remaining}"}}"#,
+                node.0
+            ),
+            RailPosition::Traveling { edge_index, edge, from, to, travel_ticks_elapsed, travel_ticks_total } => write!(
+                data,
+                r#"{{"kind":"Traveling","edge_index":"{edge_index}","edge":"{}","from":"{}","to":"{}","travel_ticks_elapsed":"{travel_ticks_elapsed}","travel_ticks_total":"{travel_ticks_total}"}}"#,
+                edge.0, from.0, to.0
+            ),
+            RailPosition::Complete { stop_index, node } => write!(
+                data,
+                r#"{{"kind":"Complete","stop_index":"{stop_index}","node":"{}"}}"#,
+                node.0
+            ),
+        }.unwrap();
+
+        write!(
+            data,
+            ",\"occupancy\":{},\"capacity\":{},\"passengers\":[",
+            snapshot.occupancy, snapshot.capacity
+        )
+        .unwrap();
+
+        for (index, passenger) in snapshot.passengers.iter().enumerate() {
+            if index > 0 {
+                data.push(',');
+            }
+
+            write!(
+                data,
+                r#"{{"from":"{}","to":"{}","amount":{},"waiting":{},"onboard":{},"arrived":{},"unserved":{}}}"#,
+                passenger.demand.origin.0, passenger.demand.destination.0, passenger.demand.amount,
+                passenger.waiting, passenger.onboard, passenger.arrived, passenger.unserved
+            ).unwrap();
+        }
+
+        data.push_str("]}");
+    }
+
+    data.push_str("]}}");
+    include_str!("viewer.html").replace("__TRACE_DATA__", &data)
 }
