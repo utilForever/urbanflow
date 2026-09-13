@@ -2,7 +2,7 @@
 mod rail_viewer;
 
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle};
+use urbanflow::rail::{RailPassengers, RailRoute, RailTrace, RailVehicle};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, Node, NodeId, World};
 
@@ -69,7 +69,7 @@ fn viewer_embeds_ordered_network_and_core_positions_without_losing_integer_preci
 }
 
 #[test]
-fn demo_html_is_repeatable() {
+fn demo_html_is_repeatable_and_preserves_partial_and_empty_traces() {
     let (world, trace) = rail_viewer::scenario();
 
     assert!(trace.completed);
@@ -78,4 +78,16 @@ fn demo_html_is_repeatable() {
     let (repeated_world, repeated_trace) = rail_viewer::scenario();
 
     assert_eq!(html, rail_viewer::render(&repeated_world, &repeated_trace));
+
+    for snapshots in [vec![], vec![trace.snapshots[0].clone()]] {
+        let partial = RailTrace {
+            snapshots,
+            completed: false,
+        };
+        let html = rail_viewer::render(&world, &partial);
+        let data = embedded_data(&html);
+
+        assert!(data.contains("\"completed\":false"));
+        assert_eq!(data.matches("\"tick\":").count(), partial.snapshots.len());
+    }
 }
