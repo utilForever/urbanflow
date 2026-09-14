@@ -78,6 +78,43 @@ pub enum RailVehicleState {
     Complete,
 }
 
+/// An owned vehicle position with network identifiers resolved from its route.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RailPosition {
+    AtStop {
+        /// Route stop index, distinguishing repeated visits to the same node.
+        stop_index: usize,
+        node: NodeId,
+        dwell_ticks_remaining: u64,
+    },
+    Traveling {
+        /// Route edge index, which may differ from the network edge identifier.
+        edge_index: usize,
+        edge: EdgeId,
+        from: NodeId,
+        to: NodeId,
+        /// Integer progress in [0, travel_ticks_total); arrival changes position.
+        travel_ticks_elapsed: u64,
+        travel_ticks_total: u64,
+    },
+    /// Service has ended at the route's final stop, without a final dwell.
+    Complete { stop_index: usize, node: NodeId },
+}
+
+/// Owned movement data for one Rail service at the supplied clock tick.
+///
+/// Coordinates, animation timing, and serialization belong to consumers.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RailSnapshot {
+    pub tick: u64,
+    pub position: RailPosition,
+    /// Sum of every onboard record, including explicit accounting transfers.
+    pub occupancy: u32,
+    pub capacity: u32,
+    /// Original demand order, including duplicate and zero-amount demands.
+    pub passengers: Vec<PassengerState>,
+}
+
 /// A failed tick leaves the vehicle, clock, and passenger records unchanged.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RailStepError {
@@ -144,6 +181,57 @@ impl RailVehicle {
 
     pub const fn state(&self) -> RailVehicleState {
         self.state
+    }
+
+    /// Copies the current movement state without advancing or processing stops.
+    ///
+    /// Supply the same clock and passenger records used by `advance`. The result
+    /// owns its data and remains unchanged by later service ticks. Stop and edge
+    /// identifiers come from this vehicle's validated route, including the final
+    /// stop after completion.
+    ///
+    /// Returns `RailPassengerError::CountOverflow` if total occupancy exceeds
+    /// `u32::MAX`. Explicit accounting may exceed vehicle capacity; snapshots
+    /// report that occupancy as-is, without enforcing capacity or mutating inputs.
+    pub fn snapshot(
+        &self,
+        clock: &SimulationClock,
+        passengers: &RailPassengers,
+    ) -> Result<RailSnapshot, RailPassengerError> {
+        let occupancy = passengers.occupancy()?;
+        let position = match self.state {
+            RailVehicleState::AtStop {
+                stop_index,
+                dwell_ticks_remaining,
+            } => RailPosition::AtStop {
+                stop_index,
+                node: self.route.stops[stop_index],
+                dwell_ticks_remaining,
+            },
+            RailVehicleState::Traveling {
+                edge_index,
+                travel_ticks_elapsed,
+            } => RailPosition::Traveling {
+                edge_index,
+                edge: self.route.edges[edge_index],
+                from: self.route.stops[edge_index],
+                to: self.route.stops[edge_index + 1],
+                travel_ticks_elapsed,
+                travel_ticks_total: self.travel_ticks_per_edge,
+            },
+            RailVehicleState::Complete => RailPosition::Complete {
+                stop_index: self.route.edges.len(),
+                node: self.route.stops[self.route.edges.len()],
+            },
+        };
+
+        Ok(RailSnapshot {
+            tick: clock.tick(),
+            position,
+            occupancy,
+            capacity: self.capacity,
+            passengers: passengers.records.clone(),
+        })
     }
 
     /// Advances one service tick and returns the resulting vehicle state.
@@ -285,6 +373,14 @@ impl RailPassengers {
         &self.records
     }
 
+    fn occupancy(&self) -> Result<u32, RailPassengerError> {
+        self.records.iter().try_fold(0u32, |total, record| {
+            total
+                .checked_add(record.onboard)
+                .ok_or(RailPassengerError::CountOverflow)
+        })
+    }
+
     /// Moves waiting passengers onboard by their original demand index.
     pub fn board(&mut self, demand_index: usize, amount: u32) -> Result<(), RailPassengerError> {
         let record = self
@@ -346,11 +442,7 @@ impl RailPassengers {
             .get(stop_index..)
             .and_then(|stops| stops.split_first())
             .ok_or(RailPassengerError::UnknownStop(stop_index))?;
-        let onboard = self.records.iter().try_fold(0u32, |total, record| {
-            total
-                .checked_add(record.onboard)
-                .ok_or(RailPassengerError::CountOverflow)
-        })?;
+        let onboard = self.occupancy()?;
 
         let mut remaining = vehicle
             .capacity
