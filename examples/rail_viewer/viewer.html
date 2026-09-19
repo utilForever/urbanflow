@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Urbanflow · Rail trace viewer</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, sans-serif;
+        color: #172c40;
+        background: #f3f5f7;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 40px 20px;
+      }
+      main {
+        max-width: 920px;
+        margin: auto;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+      }
+      .brand {
+        color: #436079;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+      }
+      h1 {
+        font-size: clamp(24px, 4vw, 32px);
+        margin: 8px 0;
+      }
+      p {
+        line-height: 1.6;
+        color: #4d6275;
+      }
+      #trace-status {
+        background: #e1eeed;
+        color: #145c53;
+        border-radius: 20px;
+        padding: 8px 14px;
+        font-size: 14px;
+      }
+      .card {
+        background: white;
+        border: 1px solid #dce3e9;
+        border-radius: 16px;
+        margin-top: 24px;
+        overflow: hidden;
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+        padding: 20px 24px 0;
+        font-size: 14px;
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .swatch {
+        width: 28px;
+        border-top: 3px solid #087f8c;
+      }
+      .swatch.road {
+        border-color: #64748b;
+        border-top-style: dashed;
+      }
+      .swatch.vehicle {
+        width: 12px;
+        height: 12px;
+        background: #b9500b;
+        border: 0;
+        border-radius: 50%;
+      }
+      #network {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .edge {
+        fill: none;
+        stroke-width: 3;
+      }
+      .Road {
+        stroke: #64748b;
+        stroke-dasharray: 7 6;
+      }
+      .Rail {
+        stroke: #087f8c;
+      }
+      .node {
+        fill: white;
+        stroke: #172c40;
+        stroke-width: 2;
+      }
+      .node-label {
+        fill: #172c40;
+        font-size: 15px;
+        text-anchor: middle;
+      }
+      #vehicle {
+        fill: #b9500b;
+        stroke: white;
+        stroke-width: 3;
+      }
+      .selection {
+        padding: 20px 24px;
+        border-top: 1px solid #e5ebf0;
+      }
+      .selection div {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      output {
+        font-variant-numeric: tabular-nums;
+      }
+      input {
+        width: 100%;
+        min-height: 32px;
+        margin: 12px 0 0;
+        accent-color: #087f8c;
+      }
+      input:focus-visible {
+        outline: 2px solid #087f8c;
+        outline-offset: 4px;
+      }
+      footer {
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <div class="brand">URBANFLOW / RECORDED SERVICE</div>
+          <h1>Rail trace viewer</h1>
+        </div>
+        <span id="trace-status"></span>
+      </header>
+      <p id="snapshot-help">
+        Select a recorded snapshot to inspect the vehicle's position along its
+        route.
+      </p>
+      <section class="card" aria-label="Recorded Rail network">
+        <div class="legend" aria-label="Legend">
+          <span><i class="swatch road" aria-hidden="true"></i>Road</span>
+          <span><i class="swatch" aria-hidden="true"></i>Rail</span>
+          <span><i class="swatch vehicle" aria-hidden="true"></i>Vehicle</span>
+        </div>
+        <svg
+          id="network"
+          viewBox="0 0 800 480"
+          role="img"
+          aria-labelledby="network-title network-description"
+        >
+          <title id="network-title">
+            Directed transit network and recorded Rail vehicle
+          </title>
+          <desc id="network-description">
+            Nodes follow stored order clockwise from the top. Arrows show edge
+            direction.
+          </desc>
+          <defs>
+            <marker
+              id="Road-arrow"
+              viewBox="0 0 10 10"
+              refX="22"
+              refY="5"
+              markerWidth="10"
+              markerHeight="10"
+              markerUnits="userSpaceOnUse"
+              orient="auto"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 Z" fill="#64748b" />
+            </marker>
+            <marker
+              id="Rail-arrow"
+              viewBox="0 0 10 10"
+              refX="22"
+              refY="5"
+              markerWidth="10"
+              markerHeight="10"
+              markerUnits="userSpaceOnUse"
+              orient="auto"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 Z" fill="#087f8c" />
+            </marker>
+          </defs>
+          <g id="edges"></g>
+          <g id="nodes"></g>
+          <circle id="vehicle" r="10" visibility="hidden">
+            <title>Rail vehicle</title>
+          </circle>
+        </svg>
+        <div class="selection">
+          <div>
+            <label for="snapshot">Snapshot</label
+            ><output id="tick" for="snapshot" aria-live="polite"></output>
+          </div>
+          <input
+            id="snapshot"
+            type="range"
+            min="0"
+            value="0"
+            step="1"
+            aria-describedby="snapshot-help"
+          />
+        </div>
+      </section>
+      <noscript
+        ><p>
+          Enable JavaScript to display the embedded network and trace.
+        </p></noscript
+      >
+      <footer>
+        <p>
+          Positions come from recorded simulation state. Node layout is
+          schematic.
+        </p>
+      </footer>
+    </main>
+    <script id="trace-data" type="application/json">
+      __TRACE_DATA__
+    </script>
+    <script>
+      "use strict";
+      const data = JSON.parse(
+        document.getElementById("trace-data").textContent,
+      );
+      const frames = data.trace.snapshots;
+      const nodes = new Map();
+      const paths = new Map();
+      const marker = document.getElementById("vehicle");
+      const selector = document.getElementById("snapshot");
+      const tick = document.getElementById("tick");
+
+      function svgElement(tag, attributes, parent) {
+        const element = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          tag,
+        );
+        for (const [name, value] of Object.entries(attributes))
+          element.setAttribute(name, value);
+        parent.appendChild(element);
+        return element;
+      }
+
+      data.nodes.forEach((id, index) => {
+        const angle = (index * 2 * Math.PI) / data.nodes.length - Math.PI / 2;
+        const x = data.nodes.length === 1 ? 400 : 400 + 260 * Math.cos(angle);
+        const y = data.nodes.length === 1 ? 240 : 240 + 155 * Math.sin(angle);
+        nodes.set(id, { x, y });
+        const group = document.getElementById("nodes");
+        svgElement("circle", { cx: x, cy: y, r: 13, class: "node" }, group);
+        svgElement(
+          "text",
+          { x, y: y + 34, class: "node-label" },
+          group,
+        ).textContent = `Node ${id}`;
+      });
+
+      // Separate all edges sharing endpoints, including reverse and mixed modes.
+      const groups = new Map();
+      for (const edge of data.edges) {
+        const key = [edge.from, edge.to].sort().join(":");
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(edge);
+      }
+      for (const group of groups.values()) {
+        const a = nodes.get(group[0].from),
+          b = nodes.get(group[0].to);
+        const length = Math.hypot(b.x - a.x, b.y - a.y);
+        group.forEach((edge, index) => {
+          const offset = (index - (group.length - 1) / 2) * 48;
+          const cx = (a.x + b.x) / 2 - ((b.y - a.y) / length) * offset;
+          const cy = (a.y + b.y) / 2 + ((b.x - a.x) / length) * offset;
+          const from = nodes.get(edge.from),
+            to = nodes.get(edge.to);
+          const path = svgElement(
+            "path",
+            {
+              d: `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`,
+              class: `edge ${edge.kind}`,
+              "marker-end": `url(#${edge.kind}-arrow)`,
+            },
+            document.getElementById("edges"),
+          );
+          svgElement("title", {}, path).textContent =
+            `${edge.kind} ${edge.id}: ${edge.from} → ${edge.to}`;
+          paths.set(edge.id, path);
+        });
+      }
+
+      function renderSnapshot(index) {
+        const frame = frames[index];
+        if (!frame) {
+          marker.setAttribute("visibility", "hidden");
+          tick.textContent = "No snapshots recorded";
+          return;
+        }
+        const position = frame.position;
+        let point;
+        if (position.kind === "Traveling") {
+          const path = paths.get(position.edge);
+          const progress =
+            Number(position.travel_ticks_elapsed) /
+            Number(position.travel_ticks_total);
+          point = path.getPointAtLength(path.getTotalLength() * progress);
+        } else {
+          point = nodes.get(position.node);
+        }
+        marker.setAttribute("cx", point.x);
+        marker.setAttribute("cy", point.y);
+        marker.setAttribute("visibility", "visible");
+        tick.textContent = `Tick ${frame.tick} · ${index + 1} / ${frames.length}`;
+        selector.setAttribute(
+          "aria-valuetext",
+          `Snapshot ${index + 1}, tick ${frame.tick}`,
+        );
+      }
+
+      document.getElementById("trace-status").textContent = data.trace.completed
+        ? "Complete trace"
+        : "Partial trace";
+      selector.max = Math.max(0, frames.length - 1);
+      selector.disabled = frames.length < 2;
+      selector.addEventListener("input", () =>
+        renderSnapshot(Number(selector.value)),
+      );
+      renderSnapshot(0);
+    </script>
+  </body>
+</html>
