@@ -29,15 +29,15 @@ The library owns simulation rules. Owned observations, snapshots, and traces let
 
 ## Module Map
 
-| Modules | Visibility | Responsibility |
-| --- | --- | --- |
-| [`world`](src/world.rs), [`demand`](src/demand.rs) | Public | Nodes, directed edges, mode capacities and costs, and passenger demand |
-| [`network`](src/network.rs) | Public | Derived adjacency index and directed shortest-path queries |
-| [`simulation`](src/simulation.rs) | Crate-private | Capacity allocation and aggregate metrics, invoked through `Env` |
-| [`env`](src/env.rs), [`action`](src/action.rs) | Public | Scenario lifecycle, action validation, episode state, and rewards |
-| [`time`](src/time.rs) | Public | Checked integer simulation clock |
-| [`rail`](src/rail.rs) | Public | Validated routes, vehicle ticks, passenger lifecycle, snapshots, and traces |
-| [`metrics`](src/metrics.rs), [`observation`](src/observation.rs), [`step_result`](src/step_result.rs) | Public | Owned outputs for callers |
+| Modules                                                                                               | Visibility    | Responsibility                                                              |
+| ----------------------------------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------- |
+| [`world`](src/world.rs), [`demand`](src/demand.rs)                                                    | Public        | Nodes, directed edges, mode capacities and costs, and passenger demand      |
+| [`network`](src/network.rs)                                                                           | Public        | Derived adjacency index and directed shortest-path queries                  |
+| [`simulation`](src/simulation.rs)                                                                     | Crate-private | Capacity allocation and aggregate metrics, invoked through `Env`            |
+| [`env`](src/env.rs), [`action`](src/action.rs)                                                        | Public        | Scenario lifecycle, action validation, episode state, and rewards           |
+| [`time`](src/time.rs)                                                                                 | Public        | Checked integer simulation clock                                            |
+| [`rail`](src/rail.rs)                                                                                 | Public        | Validated routes, vehicle ticks, passenger lifecycle, snapshots, and traces |
+| [`metrics`](src/metrics.rs), [`observation`](src/observation.rs), [`step_result`](src/step_result.rs) | Public        | Owned outputs for callers                                                   |
 
 ## Execution Flows
 
@@ -69,6 +69,12 @@ The caller keeps one vehicle, clock, and passenger set together. `advance` coord
 ## Training Consumers
 
 The [`random_policy`](examples/random_policy.rs) and [`tabular_q_learning`](examples/tabular_q_learning.rs) examples use `reset`, `available_actions`, and `step` through the public API. Policy state stays outside the core. These are fixed-seed baselines with one decision and one step per episode; the learner keeps one value per action, without a general state table or multi-step training loop.
+
+## Browser Consumer
+
+The [`rail_viewer`](examples/rail_viewer.rs) example records a small service through `RailVehicle::record_trace` and writes one offline HTML file. Its [consumer module](examples/rail_viewer/mod.rs) serializes the world and trace into a fixed JSON schema; IDs and 64-bit tick values use strings to preserve JavaScript precision. No serialization dependency or public core API is added.
+
+The [embedded template](examples/rail_viewer/viewer.html) owns SVG layout, edge styling, and snapshot selection. Nodes follow stored order, parallel and reverse edges are separated, and the marker uses the snapshot's node or resolved edge ID and travel progress. Selecting a snapshot never advances simulation. Automatic playback and passenger metrics remain separate work.
 
 ## Planned Direction
 

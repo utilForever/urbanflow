@@ -29,6 +29,7 @@
 - Caller-defined directed Road and Rail networks with capacity, passenger demand, metrics, and rewards.
 - Repeatable reinforcement learning episodes with valid actions and owned observations.
 - One fixed-route Rail vehicle with timed movement, passenger boarding and alighting, and owned snapshots and bounded traces.
+- A self-contained HTML example for inspecting recorded Rail positions in a browser.
 
 Trams, demand-responsive transit (DRT), broader analysis tools, application integrations, and large-scale simulation are planned. See [Architecture](ARCHITECTURE.md) for current capabilities and future direction.
 
@@ -102,6 +103,18 @@ assert_eq!(trace.snapshots[2].passengers[0].arrived, 6);
 ```
 
 A trace records the initial snapshot and each subsequent tick, up to the supplied number of advances. Check `completed` to distinguish a full service replay from a run stopped by the limit. For individual ticks, use `advance()` and `snapshot()`. Timing, passenger, and error contracts are documented in the [Rail API](src/rail.rs).
+
+### Browser Viewer
+
+```bash
+cargo run --example rail_viewer -- rail-viewer.html
+```
+
+Open `rail-viewer.html` directly in a modern browser. The file embeds the demo network, recorded trace, CSS, and JavaScript, so it works offline without a server or frontend installation. The optional output path defaults to `rail-viewer.html`; an existing file at that path is overwritten.
+
+The SVG places nodes clockwise in stored order and distinguishes directed Road and Rail edges. Use the Snapshot slider (or arrow keys while focused) to inspect the vehicle at each recorded tick. The badge identifies complete versus partial recordings. Automatic playback and passenger metrics are planned separately.
+
+To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`. Layout and display stay in the example; the viewer makes no simulation decisions.
 
 ## Baseline RL examples
 
