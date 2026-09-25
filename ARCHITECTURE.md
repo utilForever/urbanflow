@@ -23,6 +23,10 @@ flowchart LR
         State --> Record["record_trace: bounded advance + snapshot"]
         Record --> Trace["RailTrace"]
     end
+    subgraph Presentation["Example: recorded playback"]
+        Trace --> HTML["world + trace → offline HTML"]
+        HTML --> Viewer["browser: SVG + playback controls"]
+    end
 ```
 
 The library owns simulation rules. Owned observations, snapshots, and traces let consumers retain results and replay movement without borrowing live state or reimplementing those rules.
@@ -51,11 +55,15 @@ The library owns simulation rules. Owned observations, snapshots, and traces let
 
 ### Rail Service
 
+`time::SimulationClock` owns checked integer ticks starting at zero; it has no wall-clock unit, pacing, or scheduling policy. `rail::RailVehicle::advance` coordinates this clock with vehicle and passenger state. Browser playback time belongs to the consumer and never advances this clock.
+
 A `RailRoute` validates a nonempty, ordered sequence of connected Rail edges and owns their IDs and stop nodes captured from the network. A `RailVehicle` owns that route and positive capacity, travel, and dwell durations. Route indices can differ from network IDs: stop zero is the first origin, stop `i > 0` is edge `i - 1`'s destination, and the final stop index is the edge count.
 
-The caller keeps one vehicle, clock, and passenger set together. `advance` coordinates one checked tick, movement, and stop processing atomically. Stops alight before boarding eligible demand in stored order within capacity; repeated nodes use the remaining stop sequence. Final arrival completes service and marks outstanding passengers unserved; further advances are no-ops.
+The caller keeps one vehicle, clock, and passenger set together. `advance` coordinates one checked tick, movement, and stop processing atomically. The first tick processes the initial stop before consuming dwell time; later stops are processed on arrival. Every edge uses the same configured travel duration, and each departure follows the configured dwell duration. Final arrival completes service without a final dwell; further advances are no-ops.
 
-`snapshot` reads an owned frame. `record_trace` reuses `advance` and `snapshot` to record the initial state and each tick until completion or a required tick limit, reporting incomplete runs through `completed`. A trace error returns no trace but retains earlier successful ticks. Tick sequencing, count validation, and snapshot/trace edge cases are specified in the [Rail API](src/rail.rs).
+`RailPassengers` owns aggregate lifecycle counts per demand, rather than individual passenger agents. All passengers begin waiting. Stops alight destination passengers before boarding demand that originates at the current stop and has a destination later in the route, in stored demand order within vehicle capacity. Repeated nodes use the remaining stop sequence. Passengers who have not boarded remain waiting, including demand outside the route or left behind by a full vehicle; any still outstanding at final arrival become unserved. Vehicle capacity is separate from the edge capacities used by aggregate `simulation` allocation; Rail service does not use shortest-path routing or congestion to decide movement.
+
+`snapshot` reads an owned frame without processing stops or advancing time. `record_trace` reuses `advance` and `snapshot` to record the initial state and each tick until completion or a required tick limit, reporting incomplete runs through `completed`. Reaching the limit leaves the service and passenger counts at the last recorded tick, without completing unfinished journeys. A trace error returns no trace but retains earlier successful ticks. Each frame owns a copy of the passenger records, so callers must choose a limit suitable for an in-memory trace. Tick sequencing, count validation, and snapshot/trace edge cases are specified in the [Rail API](src/rail.rs).
 
 ## Simulation Contracts
 
@@ -72,6 +80,8 @@ The [`random_policy`](examples/random_policy.rs) and [`tabular_q_learning`](exam
 
 ## Browser Consumer
 
+The [README walkthrough](README.md#browser-viewer) is the supported local generation and playback workflow. Rust finishes recording before the browser opens; playback reads those fixed snapshots. Identical scenario inputs and ordering produce identical traces and HTML, regardless of browser playback speed or seeking.
+
 The [`rail_viewer`](examples/rail_viewer.rs) example records a small service through `RailVehicle::record_trace` and writes one offline HTML file. Its [consumer module](examples/rail_viewer/mod.rs) serializes the world and trace into a fixed JSON schema; IDs and 64-bit tick values use strings to preserve JavaScript precision. No serialization dependency or public core API is added.
 
 The [embedded template](examples/rail_viewer/viewer.html) owns SVG layout, edge styling, snapshot selection, and playback controls. Nodes follow stored order, parallel and reverse edges are separated, and the marker uses the snapshot's node or resolved edge ID and travel progress.
@@ -82,6 +92,6 @@ The status panel reads the same selected snapshot as the tick label. It displays
 
 ## Planned Direction
 
-Trams, DRT, broader macro- and micro-level analysis, application interfaces, and large-scale low-latency simulation remain planned. The Rail service currently has one fixed-route vehicle; multiple vehicles, reverse service, and traffic interactions are separate work.
+Trams, DRT, broader macro- and micro-level analysis, application interfaces, and large-scale low-latency simulation remain planned. The Rail service currently has one fixed-route vehicle; multiple vehicles, automatic reverse service, timetables, headways, and passenger transfers are separate work. Road traffic, signals, lanes, and congestion-driven movement are not implemented in Rail service. GIS maps, a web server, WebAssembly, and frontend frameworks are also deferred; the current viewer uses a schematic layout and offline HTML.
 
 Future interfaces should use the public crate API and keep rendering, coordinates, serialization, storage, and transport in consumer layers. Add new modules only when a concrete requirement establishes their responsibility.
