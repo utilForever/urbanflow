@@ -106,11 +106,17 @@ A trace records the initial snapshot and each subsequent tick, up to the supplie
 
 ### Browser Viewer
 
+From the repository root, generate the fixed-route demo:
+
 ```bash
 cargo run --example rail_viewer -- rail-viewer.html
 ```
 
 Open `rail-viewer.html` directly in a modern browser. The file embeds the demo network, recorded trace, CSS, and JavaScript, so it works offline without a server or frontend installation. The optional output path defaults to `rail-viewer.html`; an existing file at that path is overwritten.
+
+Double-click the generated file, or open it from the same terminal with `open rail-viewer.html` on macOS, `xdg-open rail-viewer.html` on a Linux desktop, or `Start-Process .\rail-viewer.html` in Windows PowerShell.
+
+The demo runs one vehicle along `8 → 3 → 21 → 5`, with capacity 6, four travel ticks per edge, and two dwell ticks at each stop before departure. It records ticks 0 through 18, including the initial state before boarding and the final arrival without a final dwell. Running the same scenario again produces the same trace and HTML.
 
 The SVG places nodes clockwise in stored order and distinguishes directed Road and Rail edges. Use Play and Pause to watch the recorded service, Reset to return to the first snapshot and pause, and Speed to select 0.25×, 0.5×, 1×, 2×, or 4×. Playback starts paused; 1× displays one recorded tick per second and is a viewing pace, not a simulation time unit. Changing speed preserves playback progress.
 
