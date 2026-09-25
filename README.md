@@ -116,7 +116,7 @@ The SVG places nodes clockwise in stored order and distinguishes directed Road a
 
 Use the Snapshot slider (or arrow keys while focused) to select a recorded tick and pause playback. During playback, the marker moves smoothly along the Rail edge while the tick label and slider identify the latest reached snapshot. Playback stops at the last recorded snapshot, including for partial recordings; use Reset to watch again. The badge identifies complete versus partial recordings. Interpolation changes only the displayed marker, never recorded simulation state.
 
-The Service status panel shows the selected snapshot's exact tick, vehicle state, stop index and node or directed edge, and load/capacity. These values update at recorded tick boundaries and follow playback, seeking, and reset. Empty recordings show unavailable values as dashes.
+The Service status panel shows the selected snapshot's exact tick, vehicle state, stop index and node or directed edge, and load/capacity. Passenger totals sum waiting, onboard, arrived, and unserved counts across all demand records. These values update at recorded tick boundaries and follow playback, seeking, and reset; they are never interpolated. Empty recordings show unavailable values as dashes.
 
 To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`. Layout and display stay in the example; the viewer makes no simulation decisions.
 

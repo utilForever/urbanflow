@@ -155,16 +155,18 @@
 
     function status(v, index) {
       const expected = [
-        ["At stop", "Stop 0 · Node 7", "0 / 6"],
-        ["Traveling", "Edge 1 · 7 → 3", "6 / 6"],
-        ["Traveling", "Edge 1 · 7 → 3", "6 / 6"],
-        ["At stop", "Stop 1 · Node 3", "3 / 6"],
-        ["Traveling", "Edge 2 · 3 → 7", "3 / 6"],
-        ["Complete", "Stop 2 · Node 7", "0 / 6"],
+        ["At stop", "Stop 0 · Node 7", "0 / 6", "11", "0", "0", "0"],
+        ["Traveling", "Edge 1 · 7 → 3", "6 / 6", "5", "6", "0", "0"],
+        ["Traveling", "Edge 1 · 7 → 3", "6 / 6", "5", "6", "0", "0"],
+        ["At stop", "Stop 1 · Node 3", "3 / 6", "2", "3", "6", "0"],
+        ["Traveling", "Edge 2 · 3 → 7", "3 / 6", "2", "3", "6", "0"],
+        ["Complete", "Stop 2 · Node 7", "0 / 6", "0", "0", "9", "2"],
       ][index];
       displays(v, "status-tick", snapshots[index].tick);
       [
         "vehicle-state", "vehicle-location", "vehicle-load",
+        "passenger-waiting", "passenger-onboard", "passenger-arrived",
+        "passenger-unserved",
       ].forEach((id, field) => displays(v, id, expected[field]));
     }
 
@@ -334,6 +336,15 @@
         },
       ],
       [
+        "empty passenger lists display zero totals",
+        async () => {
+          const v = await viewer([{ ...snapshots[0], passengers: [] }], false);
+          for (const field of ["waiting", "onboard", "arrived", "unserved"])
+            displays(v, `passenger-${field}`, "0");
+          displays(v, "vehicle-load", "0 / 6");
+        },
+      ],
+      [
         "empty and single-frame traces cannot start playback",
         async () => {
           for (const frames of [
@@ -370,6 +381,8 @@
               displays(v, "vehicle-state", "No snapshots recorded");
               for (const id of [
                 "status-tick", "vehicle-location", "vehicle-load",
+                "passenger-waiting", "passenger-onboard", "passenger-arrived",
+                "passenger-unserved",
               ]) displays(v, id, "—");
             }
           }
