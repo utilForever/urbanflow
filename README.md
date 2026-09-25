@@ -124,6 +124,17 @@ Use the Snapshot slider (or arrow keys while focused) to select a recorded tick 
 
 The Service status panel shows the selected snapshot's exact tick, vehicle state, stop index and node or directed edge, and load/capacity. Passenger totals sum waiting, onboard, arrived, and unserved counts across all demand records. These values update at recorded tick boundaries and follow playback, seeking, and reset; they are never interpolated. Empty recordings show unavailable values as dashes. On narrow screens, the panel appears below the network.
 
+| Passenger state | Meaning during this service                              |
+| --------------- | -------------------------------------------------------- |
+| Waiting         | Has not boarded; includes demand the route cannot carry. |
+| Onboard         | Is riding the vehicle and counts toward its capacity.    |
+| Arrived         | Has alighted at the demand's destination.                |
+| Unserved        | Was still waiting or onboard when service ended.         |
+
+The demo starts with 11 waiting passengers. Six board at node 8 and arrive at node 21; the remaining two at node 8 and all three at node 3 become unserved at completion. Seek to tick 18 to see 6 arrived, 5 unserved, and zero waiting or onboard. A complete recording means the vehicle finished its route, not that every passenger arrived. A partial trace retains its last recorded counts without forcing waiting passengers to become unserved.
+
+This is one fixed-route Rail service with fixed travel and dwell durations and aggregated passenger counts, independent of `Env` rewards. Road edges provide network context only. Multiple vehicles, timetables, headways, transfers, Road traffic, congestion-driven movement, Tram/DRT vehicles, and geographic maps are not modeled by this demo.
+
 To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`. Layout and display stay in the example; the viewer makes no simulation decisions.
 
 ## Baseline RL examples
