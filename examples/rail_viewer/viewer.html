@@ -140,7 +140,8 @@
         margin-top: 16px;
         gap: 12px;
       }
-      button, select {
+      button,
+      select {
         font: inherit;
         color: inherit;
         background: white;
@@ -151,10 +152,13 @@
       button:not(:disabled) {
         cursor: pointer;
       }
-      button:disabled, select:disabled {
+      button:disabled,
+      select:disabled {
         opacity: 0.5;
       }
-      input:focus-visible, button:focus-visible, select:focus-visible {
+      input:focus-visible,
+      button:focus-visible,
+      select:focus-visible {
         outline: 2px solid #087f8c;
         outline-offset: 4px;
       }
@@ -174,7 +178,8 @@
       </header>
       <p id="snapshot-help">
         Play the recorded service or select a snapshot to inspect it. Selecting
-        a snapshot pauses playback. At 1× speed, one recorded tick takes one second.
+        a snapshot pauses playback. At 1× speed, one recorded tick takes one
+        second.
       </p>
       <section class="card" aria-label="Recorded Rail network">
         <div class="legend" aria-label="Legend">
@@ -264,7 +269,8 @@
         <p>
           Playback stops at the last recorded snapshot. Reset returns to the
           first snapshot and pauses. Movement between ticks is interpolated for
-          viewing; recorded simulation state is unchanged. Node layout is schematic.
+          viewing; recorded simulation state is unchanged. Node layout is
+          schematic.
         </p>
       </footer>
     </main>
@@ -351,7 +357,10 @@
       }
 
       function updateControls() {
-        play.disabled = frames.length < 2 || cursor >= frames.length - 1 || animation !== null;
+        play.disabled =
+          frames.length < 2 ||
+          cursor >= frames.length - 1 ||
+          animation !== null;
         pause.disabled = animation === null;
         reset.disabled = frames.length === 0;
         speed.disabled = frames.length < 2;
@@ -377,9 +386,12 @@
           const next = frames[index + 1]?.position;
           // Arrival is the endpoint of this same edge, not a straight line
           // between screen coordinates. AtStop frames stay at their node.
-          const end = !next ? start : next.kind === "Traveling"
-            ? Number(next.travel_ticks_elapsed) / Number(next.travel_ticks_total)
-            : 1;
+          const end = !next
+            ? start
+            : next.kind === "Traveling"
+              ? Number(next.travel_ticks_elapsed) /
+                Number(next.travel_ticks_total)
+              : 1;
           const progress = start + (end - start) * (cursor - index);
           point = path.getPointAtLength(path.getTotalLength() * progress);
         } else {
@@ -406,7 +418,10 @@
       }
 
       function advancePlayback(now) {
-        cursor = Math.min(frames.length - 1, cursor + (now - previousTime) * rate / 1000);
+        cursor = Math.min(
+          frames.length - 1,
+          cursor + ((now - previousTime) * rate) / 1000,
+        );
         previousTime = now;
         renderSnapshot();
         if (cursor >= frames.length - 1) stopPlayback();
@@ -429,7 +444,12 @@
         renderSnapshot();
       });
       play.addEventListener("click", () => {
-        if (animation !== null || frames.length < 2 || cursor >= frames.length - 1) return;
+        if (
+          animation !== null ||
+          frames.length < 2 ||
+          cursor >= frames.length - 1
+        )
+          return;
         previousTime = performance.now();
         animation = requestAnimationFrame(animate);
         updateControls();

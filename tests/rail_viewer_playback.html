@@ -10,15 +10,21 @@
     const results = document.getElementById("results");
     const template = await fetch("../examples/rail_viewer/viewer.html", {
       cache: "no-store",
-    }).then(
-      (response) => response.text(),
-    );
+    }).then((response) => response.text());
     const stop = (index, node) => ({
-      kind: "AtStop", stop_index: String(index), node, dwell_ticks_remaining: "1",
+      kind: "AtStop",
+      stop_index: String(index),
+      node,
+      dwell_ticks_remaining: "1",
     });
     const travel = (index, edge, from, to, elapsed, total) => ({
-      kind: "Traveling", edge_index: String(index), edge, from, to,
-      travel_ticks_elapsed: String(elapsed), travel_ticks_total: String(total),
+      kind: "Traveling",
+      edge_index: String(index),
+      edge,
+      from,
+      to,
+      travel_ticks_elapsed: String(elapsed),
+      travel_ticks_total: String(total),
     });
     const positions = [
       stop(0, "7"),
@@ -30,7 +36,10 @@
     ];
     const snapshots = positions.map((position, index) => ({
       tick: String(18446744073709551610n + BigInt(index)),
-      position, occupancy: 0, capacity: 6, passengers: [],
+      position,
+      occupancy: 0,
+      capacity: 6,
+      passengers: [],
     }));
     const fixture = {
       nodes: ["7", "3"],
@@ -43,7 +52,8 @@
     };
 
     function installClock() {
-      let now = 0, nextId = 0;
+      let now = 0,
+        nextId = 0;
       const callbacks = new Map();
       performance.now = () => now;
       window.requestAnimationFrame = (callback) => {
@@ -72,11 +82,15 @@
       iframe.title = "Viewer under test";
       iframe.width = "960";
       iframe.height = "800";
-      const ready = new Promise((resolve) => iframe.onload = resolve);
+      const ready = new Promise((resolve) => (iframe.onload = resolve));
       iframe.srcdoc = template
-        .replace("__TRACE_DATA__", JSON.stringify({
-          ...fixture, trace: { completed, snapshots: frames },
-        }))
+        .replace(
+          "__TRACE_DATA__",
+          JSON.stringify({
+            ...fixture,
+            trace: { completed, snapshots: frames },
+          }),
+        )
         .replace("<script>", `<script>(${installClock})();<\/script><script>`);
       document.body.append(iframe);
       await ready;
@@ -90,9 +104,12 @@
         click: (id) => get(id).click(),
         change: (id, value) => {
           get(id).value = String(value);
-          get(id).dispatchEvent(new iframe.contentWindow.Event(
-            id === "snapshot" ? "input" : "change", { bubbles: true },
-          ));
+          get(id).dispatchEvent(
+            new iframe.contentWindow.Event(
+              id === "snapshot" ? "input" : "change",
+              { bubbles: true },
+            ),
+          );
         },
         point: () => ({
           x: Number(get("vehicle").getAttribute("cx")),
@@ -100,152 +117,213 @@
         }),
         onEdge: (index, progress) => {
           const path = doc.querySelectorAll("path.Rail")[index];
-          const expected = path.getPointAtLength(path.getTotalLength() * progress);
+          const expected = path.getPointAtLength(
+            path.getTotalLength() * progress,
+          );
           const x = Number(get("vehicle").getAttribute("cx"));
           const y = Number(get("vehicle").getAttribute("cy"));
-          assert(Math.hypot(x - expected.x, y - expected.y) < 0.1,
-            `Marker must follow Rail edge ${index} at ${progress}`);
+          assert(
+            Math.hypot(x - expected.x, y - expected.y) < 0.1,
+            `Marker must follow Rail edge ${index} at ${progress}`,
+          );
         },
       };
     }
 
     function selected(v, index) {
-      assert(v.get("snapshot").value === String(index), `Expected snapshot ${index}`);
-      assert(v.get("tick").textContent.includes(snapshots[index].tick),
-        "Tick must retain its exact recorded integer label");
+      assert(
+        v.get("snapshot").value === String(index),
+        `Expected snapshot ${index}`,
+      );
+      assert(
+        v.get("tick").textContent.includes(snapshots[index].tick),
+        "Tick must retain its exact recorded integer label",
+      );
     }
 
     const tests = [
-      ["lagging frame timestamps never hide or rewind the vehicle", async () => {
-        const v = await viewer();
-        v.advance(100, false);
-        v.click("play");
-        v.advance(1, true, 16);
-        assert(v.get("vehicle").getAttribute("visibility") === "visible",
-          "A frame timestamp before Play must not hide the vehicle");
-        selected(v, 0);
-
-        v.change("snapshot", 1);
-        v.click("play");
-        v.advance(500);
-        v.onEdge(0, 0.25);
-        v.click("pause");
-        v.advance(1000, false);
-        v.click("play");
-        v.advance(1, true, 16);
-        v.onEdge(0, 0.2505);
-
-        v.advance(100, false);
-        v.change("speed", 2);
-        v.onEdge(0, 0.3005);
-        v.advance(1, true, 16);
-        v.onEdge(0, 0.3015);
-        selected(v, 1);
-      }],
-      ["play, pause and resume follow curves, dwell, and stop at the final tick", async () => {
-        const v = await viewer();
-        assert(v.get("pause").disabled && !v.get("play").disabled, "Starts paused");
-        v.advance(1000);
-        selected(v, 0);
-        v.click("play");
-        v.click("play");
-        v.advance(500);
-        v.onEdge(0, 0);
-        v.advance(1000);
-        selected(v, 1);
-        v.onEdge(0, 0.25);
-        v.advance(200, false);
-        v.click("pause");
-        v.onEdge(0, 0.35);
-        const paused = v.point();
-        v.advance(4000);
-        assert(JSON.stringify(v.point()) === JSON.stringify(paused), "Pause freezes position");
-        v.click("play");
-        v.advance(300);
-        selected(v, 2);
-        v.onEdge(0, 0.5);
-        v.advance(500);
-        v.onEdge(0, 0.75);
-        v.advance(500);
-        selected(v, 3);
-        v.onEdge(0, 1);
-        v.advance(500);
-        v.onEdge(0, 1);
-        v.advance(500);
-        selected(v, 4);
-        v.onEdge(1, 0);
-        v.advance(500);
-        v.onEdge(1, 0.5);
-        v.advance(500);
-        selected(v, 5);
-        v.onEdge(1, 1);
-        assert(v.get("play").disabled && v.get("pause").disabled, "End stops playback");
-        v.advance(10000);
-        selected(v, 5);
-      }],
-      ["speed changes preserve progress; seeking and resetting pause playback", async () => {
-        const v = await viewer();
-        v.change("snapshot", 1);
-        v.click("play");
-        v.advance(250);
-        v.onEdge(0, 0.125);
-        v.advance(250, false);
-        v.change("speed", 2);
-        v.onEdge(0, 0.25);
-        v.advance(250);
-        selected(v, 2);
-        v.onEdge(0, 0.5);
-        v.change("speed", 0.25);
-        v.advance(1000);
-        v.onEdge(0, 0.625);
-        v.change("speed", 4);
-        v.advance(125);
-        v.onEdge(0, 0.875);
-        v.change("snapshot", 4);
-        assert(v.get("pause").disabled, "Seeking pauses playback");
-        v.advance(3000);
-        v.onEdge(1, 0);
-        v.click("play");
-        v.advance(125);
-        v.onEdge(1, 0.5);
-        v.click("reset");
-        selected(v, 0);
-        assert(v.get("pause").disabled && !v.get("play").disabled, "Reset pauses at start");
-        v.advance(3000);
-        selected(v, 0);
-        v.change("speed", 0.5);
-        v.change("snapshot", 1);
-        v.click("play");
-        v.advance(1000);
-        v.onEdge(0, 0.25);
-        v.advance(100000);
-        selected(v, 5);
-        v.click("reset");
-        selected(v, 0);
-      }],
-      ["partial recordings stop without claiming completion", async () => {
-        const v = await viewer(snapshots.slice(0, 3), false);
-        v.click("play");
-        v.advance(20000);
-        selected(v, 2);
-        v.onEdge(0, 0.5);
-        assert(v.get("pause").disabled && v.get("play").disabled, "Partial end stops playback");
-        assert(v.get("trace-status").textContent === "Partial trace", "Partial badge is preserved");
-      }],
-      ["empty and single-frame traces cannot start playback", async () => {
-        for (const frames of [[], snapshots.slice(0, 1), snapshots.slice(-1)]) {
-          const v = await viewer(frames, frames[0]?.position.kind === "Complete");
-          for (const id of ["play", "pause", "speed", "snapshot"])
-            assert(v.get(id).disabled, `${id} must be disabled without an interval`);
+      [
+        "lagging frame timestamps never hide or rewind the vehicle",
+        async () => {
+          const v = await viewer();
+          v.advance(100, false);
           v.click("play");
-          v.click("reset");
+          v.advance(1, true, 16);
+          assert(
+            v.get("vehicle").getAttribute("visibility") === "visible",
+            "A frame timestamp before Play must not hide the vehicle",
+          );
+          selected(v, 0);
+
+          v.change("snapshot", 1);
+          v.click("play");
+          v.advance(500);
+          v.onEdge(0, 0.25);
+          v.click("pause");
+          v.advance(1000, false);
+          v.click("play");
+          v.advance(1, true, 16);
+          v.onEdge(0, 0.2505);
+
+          v.advance(100, false);
+          v.change("speed", 2);
+          v.onEdge(0, 0.3005);
+          v.advance(1, true, 16);
+          v.onEdge(0, 0.3015);
+          selected(v, 1);
+        },
+      ],
+      [
+        "play, pause and resume follow curves, dwell, and stop at the final tick",
+        async () => {
+          const v = await viewer();
+          assert(
+            v.get("pause").disabled && !v.get("play").disabled,
+            "Starts paused",
+          );
+          v.advance(1000);
+          selected(v, 0);
+          v.click("play");
+          v.click("play");
+          v.advance(500);
+          v.onEdge(0, 0);
+          v.advance(1000);
+          selected(v, 1);
+          v.onEdge(0, 0.25);
+          v.advance(200, false);
+          v.click("pause");
+          v.onEdge(0, 0.35);
+          const paused = v.point();
+          v.advance(4000);
+          assert(
+            JSON.stringify(v.point()) === JSON.stringify(paused),
+            "Pause freezes position",
+          );
+          v.click("play");
+          v.advance(300);
+          selected(v, 2);
+          v.onEdge(0, 0.5);
+          v.advance(500);
+          v.onEdge(0, 0.75);
+          v.advance(500);
+          selected(v, 3);
+          v.onEdge(0, 1);
+          v.advance(500);
+          v.onEdge(0, 1);
+          v.advance(500);
+          selected(v, 4);
+          v.onEdge(1, 0);
+          v.advance(500);
+          v.onEdge(1, 0.5);
+          v.advance(500);
+          selected(v, 5);
+          v.onEdge(1, 1);
+          assert(
+            v.get("play").disabled && v.get("pause").disabled,
+            "End stops playback",
+          );
           v.advance(10000);
-          assert(v.get("vehicle").getAttribute("visibility") ===
-            (frames.length ? "visible" : "hidden"), "Empty traces hide the marker");
-          assert(v.get("tick").textContent.includes(frames[0]?.tick ?? "No snapshots"),
-            "Static trace remains inspectable");
-        }
-      }],
+          selected(v, 5);
+        },
+      ],
+      [
+        "speed changes preserve progress; seeking and resetting pause playback",
+        async () => {
+          const v = await viewer();
+          v.change("snapshot", 1);
+          v.click("play");
+          v.advance(250);
+          v.onEdge(0, 0.125);
+          v.advance(250, false);
+          v.change("speed", 2);
+          v.onEdge(0, 0.25);
+          v.advance(250);
+          selected(v, 2);
+          v.onEdge(0, 0.5);
+          v.change("speed", 0.25);
+          v.advance(1000);
+          v.onEdge(0, 0.625);
+          v.change("speed", 4);
+          v.advance(125);
+          v.onEdge(0, 0.875);
+          v.change("snapshot", 4);
+          assert(v.get("pause").disabled, "Seeking pauses playback");
+          v.advance(3000);
+          v.onEdge(1, 0);
+          v.click("play");
+          v.advance(125);
+          v.onEdge(1, 0.5);
+          v.click("reset");
+          selected(v, 0);
+          assert(
+            v.get("pause").disabled && !v.get("play").disabled,
+            "Reset pauses at start",
+          );
+          v.advance(3000);
+          selected(v, 0);
+          v.change("speed", 0.5);
+          v.change("snapshot", 1);
+          v.click("play");
+          v.advance(1000);
+          v.onEdge(0, 0.25);
+          v.advance(100000);
+          selected(v, 5);
+          v.click("reset");
+          selected(v, 0);
+        },
+      ],
+      [
+        "partial recordings stop without claiming completion",
+        async () => {
+          const v = await viewer(snapshots.slice(0, 3), false);
+          v.click("play");
+          v.advance(20000);
+          selected(v, 2);
+          v.onEdge(0, 0.5);
+          assert(
+            v.get("pause").disabled && v.get("play").disabled,
+            "Partial end stops playback",
+          );
+          assert(
+            v.get("trace-status").textContent === "Partial trace",
+            "Partial badge is preserved",
+          );
+        },
+      ],
+      [
+        "empty and single-frame traces cannot start playback",
+        async () => {
+          for (const frames of [
+            [],
+            snapshots.slice(0, 1),
+            snapshots.slice(-1),
+          ]) {
+            const v = await viewer(
+              frames,
+              frames[0]?.position.kind === "Complete",
+            );
+            for (const id of ["play", "pause", "speed", "snapshot"])
+              assert(
+                v.get(id).disabled,
+                `${id} must be disabled without an interval`,
+              );
+            v.click("play");
+            v.click("reset");
+            v.advance(10000);
+            assert(
+              v.get("vehicle").getAttribute("visibility") ===
+                (frames.length ? "visible" : "hidden"),
+              "Empty traces hide the marker",
+            );
+            assert(
+              v
+                .get("tick")
+                .textContent.includes(frames[0]?.tick ?? "No snapshots"),
+              "Static trace remains inspectable",
+            );
+          }
+        },
+      ],
     ];
 
     let failures = 0;
