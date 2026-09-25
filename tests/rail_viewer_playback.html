@@ -115,7 +115,7 @@
     }
 
     const tests = [
-      ["play, pause and resume select recorded ticks and stop at the final tick", async () => {
+      ["play, pause and resume follow curves, dwell, and stop at the final tick", async () => {
         const v = await viewer();
         assert(v.get("pause").disabled && !v.get("play").disabled, "Starts paused");
         v.advance(1000);
@@ -126,10 +126,10 @@
         v.onEdge(0, 0);
         v.advance(1000);
         selected(v, 1);
-        v.onEdge(0, 0);
+        v.onEdge(0, 0.25);
         v.advance(200, false);
         v.click("pause");
-        v.onEdge(0, 0);
+        v.onEdge(0, 0.35);
         const paused = v.point();
         v.advance(4000);
         assert(JSON.stringify(v.point()) === JSON.stringify(paused), "Pause freezes position");
@@ -138,7 +138,7 @@
         selected(v, 2);
         v.onEdge(0, 0.5);
         v.advance(500);
-        v.onEdge(0, 0.5);
+        v.onEdge(0, 0.75);
         v.advance(500);
         selected(v, 3);
         v.onEdge(0, 1);
@@ -148,7 +148,7 @@
         selected(v, 4);
         v.onEdge(1, 0);
         v.advance(500);
-        v.onEdge(1, 0);
+        v.onEdge(1, 0.5);
         v.advance(500);
         selected(v, 5);
         v.onEdge(1, 1);
@@ -161,26 +161,26 @@
         v.change("snapshot", 1);
         v.click("play");
         v.advance(250);
-        v.onEdge(0, 0);
+        v.onEdge(0, 0.125);
         v.advance(250, false);
         v.change("speed", 2);
-        v.onEdge(0, 0);
+        v.onEdge(0, 0.25);
         v.advance(250);
         selected(v, 2);
         v.onEdge(0, 0.5);
         v.change("speed", 0.25);
         v.advance(1000);
-        v.onEdge(0, 0.5);
+        v.onEdge(0, 0.625);
         v.change("speed", 4);
         v.advance(125);
-        v.onEdge(0, 0.5);
+        v.onEdge(0, 0.875);
         v.change("snapshot", 4);
         assert(v.get("pause").disabled, "Seeking pauses playback");
         v.advance(3000);
         v.onEdge(1, 0);
         v.click("play");
         v.advance(125);
-        v.onEdge(1, 0);
+        v.onEdge(1, 0.5);
         v.click("reset");
         selected(v, 0);
         assert(v.get("pause").disabled && !v.get("play").disabled, "Reset pauses at start");
@@ -190,7 +190,7 @@
         v.change("snapshot", 1);
         v.click("play");
         v.advance(1000);
-        v.onEdge(0, 0);
+        v.onEdge(0, 0.25);
         v.advance(100000);
         selected(v, 5);
         v.click("reset");

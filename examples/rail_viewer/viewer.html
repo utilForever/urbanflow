@@ -263,8 +263,8 @@
       <footer>
         <p>
           Playback stops at the last recorded snapshot. Reset returns to the
-          first snapshot and pauses. Positions come from recorded simulation state.
-          Node layout is schematic.
+          first snapshot and pauses. Movement between ticks is interpolated for
+          viewing; recorded simulation state is unchanged. Node layout is schematic.
         </p>
       </footer>
     </main>
@@ -371,9 +371,16 @@
         let point;
         if (position.kind === "Traveling") {
           const path = paths.get(position.edge);
-          const progress =
+          const start =
             Number(position.travel_ticks_elapsed) /
             Number(position.travel_ticks_total);
+          const next = frames[index + 1]?.position;
+          // Arrival is the endpoint of this same edge, not a straight line
+          // between screen coordinates. AtStop frames stay at their node.
+          const end = !next ? start : next.kind === "Traveling"
+            ? Number(next.travel_ticks_elapsed) / Number(next.travel_ticks_total)
+            : 1;
+          const progress = start + (end - start) * (cursor - index);
           point = path.getPointAtLength(path.getTotalLength() * progress);
         } else {
           point = nodes.get(position.node);
