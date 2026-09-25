@@ -19,7 +19,7 @@ fn embedded_data(html: &str) -> &str {
 }
 
 #[test]
-fn fixed_route_service_runs_to_completion() {
+fn fixed_route_service_reaches_the_viewer_end_to_end() {
     let mut network = Network::new();
     network
         .add_edge(NodeId(8), NodeId(21), EdgeKind::Road)
@@ -33,6 +33,10 @@ fn fixed_route_service_runs_to_completion() {
         })
         .to_vec();
     let route = RailRoute::new(&network, edges).unwrap();
+    let world = World {
+        nodes: [8, 3, 21].map(|id| Node { id: NodeId(id) }).to_vec(),
+        network,
+    };
 
     let mut vehicle = RailVehicle::new(route, 2, 2, 1).unwrap();
     let mut clock = SimulationClock::default();
@@ -146,6 +150,23 @@ fn fixed_route_service_runs_to_completion() {
         trace.snapshots.last().unwrap(),
         &vehicle.snapshot(&clock, &passengers).unwrap()
     );
+
+    let html = rail_viewer::render(&world, &trace);
+    // This hand-checked fixture covers the entire ordered payload, not just
+    // isolated fields. Its schema contains no whitespace inside string values.
+    let expected = include_str!("fixtures/rail_service.json")
+        .split_ascii_whitespace()
+        .collect::<String>();
+
+    assert_eq!(embedded_data(&html), expected);
+    assert!(!html.contains("__TRACE_DATA__"));
+
+    for control in ["play", "pause", "reset", "speed", "snapshot"] {
+        assert!(
+            html.contains(&format!("id=\"{control}\"")),
+            "missing viewer control: {control}"
+        );
+    }
 }
 
 #[test]
