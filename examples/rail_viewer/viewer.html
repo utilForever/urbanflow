@@ -92,6 +92,15 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0 16px;
       }
+      @media (max-width: 760px) {
+        .service-view {
+          grid-template-columns: 1fr;
+        }
+        .status-panel {
+          border-left: 0;
+          border-top: 1px solid #e5ebf0;
+        }
+      }
       .legend {
         display: flex;
         flex-wrap: wrap;

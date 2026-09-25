@@ -388,6 +388,22 @@
           }
         },
       ],
+      [
+        "status panel fits below the network on narrow screens",
+        async () => {
+          const v = await viewer();
+          iframe.width = "375";
+          const doc = iframe.contentDocument;
+          const panel = doc.querySelector(".status-panel").getBoundingClientRect();
+          const network = v.get("network").getBoundingClientRect();
+          assert(panel.top >= network.bottom, "Status must follow the network");
+          assert(
+            doc.documentElement.scrollWidth <= doc.documentElement.clientWidth,
+            "The viewer must fit without horizontal scrolling",
+          );
+          selected(v, 0);
+        },
+      ],
     ];
 
     let failures = 0;
