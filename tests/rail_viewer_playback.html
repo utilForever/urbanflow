@@ -51,12 +51,13 @@
         return nextId;
       };
       window.cancelAnimationFrame = (id) => callbacks.delete(id);
-      window.advanceTime = (milliseconds, paint = true) => {
+      window.advanceTime = (milliseconds, paint = true, frameLag = 0) => {
         now += milliseconds;
         if (!paint) return;
         const pending = [...callbacks.values()];
         callbacks.clear();
-        pending.forEach((callback) => callback(now));
+        // Native frame timestamps can lag behind the latest control event.
+        pending.forEach((callback) => callback(now - frameLag));
       };
     }
 
@@ -115,6 +116,32 @@
     }
 
     const tests = [
+      ["lagging frame timestamps never hide or rewind the vehicle", async () => {
+        const v = await viewer();
+        v.advance(100, false);
+        v.click("play");
+        v.advance(1, true, 16);
+        assert(v.get("vehicle").getAttribute("visibility") === "visible",
+          "A frame timestamp before Play must not hide the vehicle");
+        selected(v, 0);
+
+        v.change("snapshot", 1);
+        v.click("play");
+        v.advance(500);
+        v.onEdge(0, 0.25);
+        v.click("pause");
+        v.advance(1000, false);
+        v.click("play");
+        v.advance(1, true, 16);
+        v.onEdge(0, 0.2505);
+
+        v.advance(100, false);
+        v.change("speed", 2);
+        v.onEdge(0, 0.3005);
+        v.advance(1, true, 16);
+        v.onEdge(0, 0.3015);
+        selected(v, 1);
+      }],
       ["play, pause and resume follow curves, dwell, and stop at the final tick", async () => {
         const v = await viewer();
         assert(v.get("pause").disabled && !v.get("play").disabled, "Starts paused");
