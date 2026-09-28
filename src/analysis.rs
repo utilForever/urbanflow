@@ -20,8 +20,13 @@
 
 use crate::rail::{RailPosition, RailTrace};
 use crate::world::NodeId;
+use std::fmt;
 
 /// Errors while deriving operational results from an owned Rail trace.
+///
+/// Implements [`std::error::Error`] for propagation with `?` into
+/// `Box<dyn std::error::Error>`. Display messages include the demand index when
+/// one is available.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AnalysisError {
     /// There is no snapshot to summarize.
@@ -35,6 +40,26 @@ pub enum AnalysisError {
     /// An aggregate passenger count would exceed `u64::MAX`.
     CountOverflow,
 }
+
+impl fmt::Display for AnalysisError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EmptyTrace => formatter.write_str("the trace is empty"),
+            Self::IncompleteTrace => formatter.write_str("the trace is incomplete"),
+            Self::UnfinishedPassengers { demand_index } => write!(
+                formatter,
+                "passenger demand record {demand_index} still has waiting or onboard passengers"
+            ),
+            Self::InvalidPassengerCounts { demand_index } => write!(
+                formatter,
+                "passenger counts do not match demand record {demand_index}"
+            ),
+            Self::CountOverflow => formatter.write_str("passenger count overflow"),
+        }
+    }
+}
+
+impl std::error::Error for AnalysisError {}
 
 /// Owned passenger, vehicle, stop, and timing summaries for a completed service.
 #[derive(Clone, Debug, PartialEq)]

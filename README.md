@@ -119,7 +119,7 @@ assert_eq!((outcomes.requested, outcomes.arrived, outcomes.unserved), (10, 6, 4)
 assert_eq!(outcomes.served_share, Some(0.6));
 ```
 
-The operation rejects empty or incomplete traces, remaining waiting or onboard passengers, and final demand counts that do not conserve passengers. It also accepts a recording containing only the completed snapshot. Other result types remain data contracts; full trace consistency validation, the remaining calculations, and viewer integration are planned separately. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
+The operation rejects empty or incomplete traces, remaining waiting or onboard passengers, and final demand counts that do not conserve passengers. It also accepts a recording containing only the completed snapshot. `AnalysisError` implements `Display` and `std::error::Error`, so callers returning `Result<_, Box<dyn std::error::Error>>` can propagate failures with `?`. Other result types remain data contracts; full trace consistency validation, the remaining calculations, and viewer integration are planned separately. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
 
 ### Browser Viewer
 

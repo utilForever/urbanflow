@@ -7,6 +7,37 @@ use urbanflow::rail::{RailPassengers, RailRoute, RailTrace, RailVehicle};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, NodeId};
 
+#[test]
+fn analysis_errors_support_standard_error_propagation_and_diagnostics() {
+    fn summarize(trace: &RailTrace) -> Result<PassengerOutcomes, Box<dyn std::error::Error>> {
+        Ok(PassengerOutcomes::from_trace(trace)?)
+    }
+
+    let error = summarize(&RailTrace {
+        snapshots: vec![],
+        completed: false,
+    })
+    .unwrap_err();
+
+    assert_eq!(
+        error.downcast_ref::<AnalysisError>(),
+        Some(&AnalysisError::EmptyTrace)
+    );
+    assert!(error.to_string().contains("empty"));
+
+    for (error, detail) in [
+        (AnalysisError::IncompleteTrace, "incomplete"),
+        (AnalysisError::UnfinishedPassengers { demand_index: 7 }, "7"),
+        (
+            AnalysisError::InvalidPassengerCounts { demand_index: 11 },
+            "11",
+        ),
+        (AnalysisError::CountOverflow, "overflow"),
+    ] {
+        assert!(error.to_string().contains(detail));
+    }
+}
+
 fn completed_trace(demands: &[Demand], capacity: u32) -> RailTrace {
     let mut network = Network::new();
     let edge = network
