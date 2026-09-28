@@ -109,7 +109,15 @@ A trace records the initial snapshot and each subsequent tick, up to the supplie
 
 [`analysis::OperationalAnalysis`](src/analysis.rs) defines owned summaries for passenger outcomes and time, vehicle occupancy, ordered stop visits, and route timing. Counts and passenger-ticks use integers; undefined means and ratios use `None`. Repeated visits to the same node retain separate entries in route order.
 
-Use `PassengerOutcomes::from_trace(&trace)` to sum requested, arrived, and unserved passengers from the final snapshot of a completed Rail trace, including duplicate demands. Totals use checked `u64` arithmetic, and `served_share` is `None` when no passengers were requested.
+Use `PassengerOutcomes::from_trace(&trace)` to sum requested, arrived, and unserved passengers from the final snapshot of a completed Rail trace, including duplicate demands. Totals use checked `u64` arithmetic, and `served_share` is `None` when no passengers were requested. For the Rail trace above:
+
+```rust
+use urbanflow::analysis::PassengerOutcomes;
+
+let outcomes = PassengerOutcomes::from_trace(&trace).unwrap();
+assert_eq!((outcomes.requested, outcomes.arrived, outcomes.unserved), (10, 6, 4));
+assert_eq!(outcomes.served_share, Some(0.6));
+```
 
 The operation rejects empty or incomplete traces, remaining waiting or onboard passengers, and final demand counts that do not conserve passengers. It also accepts a recording containing only the completed snapshot. Other result types remain data contracts; full trace consistency validation, the remaining calculations, and viewer integration are planned separately. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
 
