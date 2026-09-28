@@ -41,6 +41,7 @@ The library owns simulation rules. Owned observations, snapshots, and traces let
 | [`env`](src/env.rs), [`action`](src/action.rs)                                                        | Public        | Scenario lifecycle, action validation, episode state, and rewards           |
 | [`time`](src/time.rs)                                                                                 | Public        | Checked integer simulation clock                                            |
 | [`rail`](src/rail.rs)                                                                                 | Public        | Validated routes, vehicle ticks, passenger lifecycle, snapshots, and traces |
+| [`analysis`](src/analysis.rs)                                                                         | Public        | Owned operational result contracts; no calculation or validation yet        |
 | [`metrics`](src/metrics.rs), [`observation`](src/observation.rs), [`step_result`](src/step_result.rs) | Public        | Owned outputs for callers                                                   |
 
 ## Execution Flows
@@ -64,6 +65,12 @@ The caller keeps one vehicle, clock, and passenger set together. `advance` coord
 `RailPassengers` owns aggregate lifecycle counts per demand, rather than individual passenger agents. All passengers begin waiting. Stops alight destination passengers before boarding demand that originates at the current stop and has a destination later in the route, in stored demand order within vehicle capacity. Repeated nodes use the remaining stop sequence. Passengers who have not boarded remain waiting, including demand outside the route or left behind by a full vehicle; any still outstanding at final arrival become unserved. Vehicle capacity is separate from the edge capacities used by aggregate `simulation` allocation; Rail service does not use shortest-path routing or congestion to decide movement.
 
 `snapshot` reads an owned frame without processing stops or advancing time. `record_trace` reuses `advance` and `snapshot` to record the initial state and each tick until completion or a required tick limit, reporting incomplete runs through `completed`. Reaching the limit leaves the service and passenger counts at the last recorded tick, without completing unfinished journeys. A trace error returns no trace but retains earlier successful ticks. Each frame owns a copy of the passenger records, so callers must choose a limit suitable for an in-memory trace. Tick sequencing, count validation, and snapshot/trace edge cases are specified in the [Rail API](src/rail.rs).
+
+### Operational Result Contracts
+
+`analysis` defines concrete passenger outcome, passenger time, vehicle occupancy, stop activity, and route timing structs. Stop indices distinguish repeated visits to the same node. Integer totals remain separate from optional floating-point means and ratios; passenger time includes both overall totals and the arrived-passenger totals used for completed-journey means. Rustdoc defines units, empty denominators, and the snapshot-interval convention.
+
+This module currently defines data only: public fields do not validate caller-created results, and there is no trace-to-analysis operation or viewer integration. Future calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
 
 ## Simulation Contracts
 

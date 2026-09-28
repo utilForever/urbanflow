@@ -1,4 +1,5 @@
 pub mod action;
+pub mod analysis;
 pub mod demand;
 pub mod env;
 pub mod metrics;
