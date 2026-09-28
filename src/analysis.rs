@@ -35,10 +35,21 @@ pub enum AnalysisError {
     IncompleteTrace,
     /// A final passenger record still has waiting or onboard passengers.
     UnfinishedPassengers { demand_index: usize },
-    /// A final record's arrived and unserved counts do not sum to its demand.
+    /// A record's lifecycle counts do not sum to its demand amount.
     InvalidPassengerCounts { demand_index: usize },
     /// An aggregate passenger count would exceed `u64::MAX`.
     CountOverflow,
+    /// This snapshot's tick is not strictly greater than the previous tick.
+    InvalidTickOrder { snapshot_index: usize },
+    /// This snapshot changes the number, identity, or order of demand records.
+    InconsistentDemands { snapshot_index: usize },
+    /// Passenger counts cannot follow the preceding recorded lifecycle state.
+    InvalidPassengerTransition {
+        snapshot_index: usize,
+        demand_index: usize,
+    },
+    /// A passenger-tick product, total, or combined journey exceeds `u64::MAX`.
+    TimeOverflow,
 }
 
 impl fmt::Display for AnalysisError {
@@ -55,6 +66,22 @@ impl fmt::Display for AnalysisError {
                 "passenger counts do not match demand record {demand_index}"
             ),
             Self::CountOverflow => formatter.write_str("passenger count overflow"),
+            Self::InvalidTickOrder { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} does not advance the recorded tick"
+            ),
+            Self::InconsistentDemands { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} has inconsistent demand records"
+            ),
+            Self::InvalidPassengerTransition {
+                snapshot_index,
+                demand_index,
+            } => write!(
+                formatter,
+                "snapshot {snapshot_index} has an invalid lifecycle transition for demand record {demand_index}"
+            ),
+            Self::TimeOverflow => formatter.write_str("passenger time overflow"),
         }
     }
 }

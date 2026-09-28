@@ -33,6 +33,19 @@ fn analysis_errors_support_standard_error_propagation_and_diagnostics() {
             "11",
         ),
         (AnalysisError::CountOverflow, "overflow"),
+        (AnalysisError::InvalidTickOrder { snapshot_index: 4 }, "4"),
+        (
+            AnalysisError::InconsistentDemands { snapshot_index: 5 },
+            "5",
+        ),
+        (
+            AnalysisError::InvalidPassengerTransition {
+                snapshot_index: 6,
+                demand_index: 9,
+            },
+            "9",
+        ),
+        (AnalysisError::TimeOverflow, "overflow"),
     ] {
         assert!(error.to_string().contains(detail));
     }
