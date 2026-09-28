@@ -68,7 +68,7 @@ The caller keeps one vehicle, clock, and passenger set together. `advance` coord
 
 ### Operational Result Contracts
 
-`analysis` defines concrete passenger outcome, passenger time, vehicle occupancy, stop activity, and route timing structs. Stop indices distinguish repeated visits to the same node. Integer totals remain separate from optional floating-point means and ratios; passenger time includes both overall totals and the arrived-passenger totals used for completed-journey means. Rustdoc defines units, empty denominators, and the snapshot-interval convention.
+`analysis::OperationalAnalysis` groups concrete passenger outcome, passenger time, vehicle occupancy, stop activity, and route timing structs. It owns its per-stop collection in route-visit order, preserving repeated nodes through stop indices. Integer totals remain separate from optional floating-point means and ratios; passenger time includes both overall totals and the arrived-passenger totals used for completed-journey means. Rustdoc defines units, empty denominators, and the snapshot-interval convention.
 
 This module currently defines data only: public fields do not validate caller-created results, and there is no trace-to-analysis operation or viewer integration. Future calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
 

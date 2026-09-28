@@ -18,6 +18,24 @@
 
 use crate::world::NodeId;
 
+/// Owned passenger, vehicle, stop, and timing summaries for a completed service.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OperationalAnalysis {
+    /// Final demand outcomes, separate from network-allocation metrics.
+    pub passenger_outcomes: PassengerOutcomes,
+    /// Overall passenger-tick totals and means for passengers who arrived.
+    pub passenger_times: PassengerTimes,
+    /// Capacity use across the recorded active service intervals.
+    pub vehicle_occupancy: VehicleOccupancy,
+    /// One entry per route stop visit, including the initial and final stops.
+    ///
+    /// Entries follow route order by `stop_index`, not node ID. Repeated visits
+    /// to the same node remain separate entries; no sorting or grouping by node.
+    pub stops: Vec<StopActivity>,
+    /// Recorded duration breakdown and absolute completion tick.
+    pub route_timing: RouteTiming,
+}
+
 /// Aggregate final passenger counts, including duplicate demand records.
 ///
 /// In a completed service, `requested == arrived + unserved`, with no waiting

@@ -106,7 +106,7 @@ A trace records the initial snapshot and each subsequent tick, up to the supplie
 
 ### Operational Analysis Result Types
 
-The [`analysis` module](src/analysis.rs) defines result types for passenger outcomes and time, vehicle occupancy, individual stop visits, and route timing. Counts and passenger-ticks use integers; undefined means and ratios use `None`. Stop indices distinguish repeated visits to the same node.
+[`analysis::OperationalAnalysis`](src/analysis.rs) defines owned summaries for passenger outcomes and time, vehicle occupancy, ordered stop visits, and route timing. Counts and passenger-ticks use integers; undefined means and ratios use `None`. Repeated visits to the same node retain separate entries in route order.
 
 These are public data types only. Trace validation, calculation, and viewer integration are planned separately. They describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units and interval conventions.
 
