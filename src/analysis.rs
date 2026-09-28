@@ -1,7 +1,9 @@
-//! Owned operational result types for one completed Rail service.
+//! Owned operational results for one completed Rail service.
 //!
-//! These are data contracts only: trace analysis and validation are not yet
-//! implemented. Public fields permit caller construction without validation.
+//! [`PassengerOutcomes::from_trace`] summarizes final passenger counts with
+//! completion and terminal passenger validation. Other result types are data
+//! contracts only; full trace validation and analysis are not yet implemented.
+//! Public fields permit caller construction without validation.
 //! Unlike [`crate::metrics::Metrics`], these summaries describe a recorded
 //! service, not aggregate network allocation, construction cost, or reward.
 //!
@@ -16,7 +18,23 @@
 //! snapshot contributes no interval. Completed-passenger time totals count only
 //! passengers who arrived, excluding time spent waiting by unserved passengers.
 
+use crate::rail::{RailPosition, RailTrace};
 use crate::world::NodeId;
+
+/// Errors while deriving operational results from an owned Rail trace.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AnalysisError {
+    /// There is no snapshot to summarize.
+    EmptyTrace,
+    /// The trace is not marked completed or its final position is not complete.
+    IncompleteTrace,
+    /// A final passenger record still has waiting or onboard passengers.
+    UnfinishedPassengers { demand_index: usize },
+    /// A final record's arrived and unserved counts do not sum to its demand.
+    InvalidPassengerCounts { demand_index: usize },
+    /// An aggregate passenger count would exceed `u64::MAX`.
+    CountOverflow,
+}
 
 /// Owned passenger, vehicle, stop, and timing summaries for a completed service.
 #[derive(Clone, Debug, PartialEq)]
@@ -51,6 +69,66 @@ pub struct PassengerOutcomes {
     pub unserved: u64,
     /// `arrived / requested`, in `[0, 1]`; `None` when `requested` is zero.
     pub served_share: Option<f64>,
+}
+
+impl PassengerOutcomes {
+    /// Summarizes the final snapshot without modifying the trace.
+    ///
+    /// Counts every demand record separately, including duplicates and zero
+    /// amounts, using checked `u64` totals. A completion-only recording is valid;
+    /// earlier snapshots are not inspected. Full tick, occupancy, and lifecycle
+    /// consistency validation across the recording is outside this operation.
+    /// `served_share` is `None` for zero requested passengers.
+    ///
+    /// # Errors
+    ///
+    /// Checks for [`AnalysisError::EmptyTrace`] first, then requires both the
+    /// trace's completion flag and a final [`RailPosition::Complete`] position
+    /// or returns [`AnalysisError::IncompleteTrace`]. In final demand order,
+    /// returns [`AnalysisError::UnfinishedPassengers`] for waiting or onboard
+    /// passengers, then [`AnalysisError::InvalidPassengerCounts`] unless arrived
+    /// plus unserved equals the original demand amount. Each error's
+    /// `demand_index` is the zero-based index in the final snapshot. Aggregate
+    /// overflow returns [`AnalysisError::CountOverflow`]; no partial result is
+    /// returned on any error.
+    pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
+        let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
+
+        if !trace.completed || !matches!(final_snapshot.position, RailPosition::Complete { .. }) {
+            return Err(AnalysisError::IncompleteTrace);
+        }
+
+        let mut requested = 0u64;
+        let mut arrived = 0u64;
+        let mut unserved = 0u64;
+
+        for (demand_index, record) in final_snapshot.passengers.iter().enumerate() {
+            if record.waiting != 0 || record.onboard != 0 {
+                return Err(AnalysisError::UnfinishedPassengers { demand_index });
+            }
+
+            if record.arrived.checked_add(record.unserved) != Some(record.demand.amount) {
+                return Err(AnalysisError::InvalidPassengerCounts { demand_index });
+            }
+
+            requested = requested
+                .checked_add(u64::from(record.demand.amount))
+                .ok_or(AnalysisError::CountOverflow)?;
+            arrived = arrived
+                .checked_add(u64::from(record.arrived))
+                .ok_or(AnalysisError::CountOverflow)?;
+            unserved = unserved
+                .checked_add(u64::from(record.unserved))
+                .ok_or(AnalysisError::CountOverflow)?;
+        }
+
+        Ok(Self {
+            requested,
+            arrived,
+            unserved,
+            served_share: (requested != 0).then(|| arrived as f64 / requested as f64),
+        })
+    }
 }
 
 /// Integer passenger-ticks and passenger-weighted means over recorded intervals.

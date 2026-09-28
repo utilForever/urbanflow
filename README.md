@@ -29,6 +29,7 @@
 - Caller-defined directed Road and Rail networks with capacity, passenger demand, metrics, and rewards.
 - Repeatable reinforcement learning episodes with valid actions and owned observations.
 - One fixed-route Rail vehicle with timed movement, passenger boarding and alighting, and owned snapshots and bounded traces.
+- Checked passenger outcome totals and served share from completed Rail traces.
 - A self-contained HTML example for inspecting recorded Rail positions in a browser.
 
 Trams, demand-responsive transit (DRT), broader analysis tools, application integrations, and large-scale simulation are planned. See [Architecture](ARCHITECTURE.md) for current capabilities and future direction.
@@ -108,7 +109,9 @@ A trace records the initial snapshot and each subsequent tick, up to the supplie
 
 [`analysis::OperationalAnalysis`](src/analysis.rs) defines owned summaries for passenger outcomes and time, vehicle occupancy, ordered stop visits, and route timing. Counts and passenger-ticks use integers; undefined means and ratios use `None`. Repeated visits to the same node retain separate entries in route order.
 
-These are public data types only. Trace validation, calculation, and viewer integration are planned separately. They describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units and interval conventions.
+Use `PassengerOutcomes::from_trace(&trace)` to sum requested, arrived, and unserved passengers from the final snapshot of a completed Rail trace, including duplicate demands. Totals use checked `u64` arithmetic, and `served_share` is `None` when no passengers were requested.
+
+The operation rejects empty or incomplete traces, remaining waiting or onboard passengers, and final demand counts that do not conserve passengers. It also accepts a recording containing only the completed snapshot. Other result types remain data contracts; full trace consistency validation, the remaining calculations, and viewer integration are planned separately. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
 
 ### Browser Viewer
 
