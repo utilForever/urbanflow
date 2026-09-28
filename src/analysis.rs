@@ -27,8 +27,8 @@ use std::fmt;
 /// Errors while deriving operational results from an owned Rail trace.
 ///
 /// Implements [`std::error::Error`] for propagation with `?` into
-/// `Box<dyn std::error::Error>`. Display messages include the demand index when
-/// one is available.
+/// `Box<dyn std::error::Error>`. Display messages include the demand or snapshot
+/// index when one is available.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AnalysisError {
     /// There is no snapshot to summarize.
@@ -52,6 +52,10 @@ pub enum AnalysisError {
     },
     /// A passenger-tick product, total, or combined journey exceeds `u64::MAX`.
     TimeOverflow,
+    /// Capacity is zero or differs from the first snapshot's capacity.
+    InvalidCapacity { snapshot_index: usize },
+    /// Recorded occupancy exceeds the configured capacity.
+    InvalidOccupancy { snapshot_index: usize },
 }
 
 impl fmt::Display for AnalysisError {
@@ -84,6 +88,14 @@ impl fmt::Display for AnalysisError {
                 "snapshot {snapshot_index} has an invalid lifecycle transition for demand record {demand_index}"
             ),
             Self::TimeOverflow => formatter.write_str("passenger time overflow"),
+            Self::InvalidCapacity { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} has zero or inconsistent vehicle capacity"
+            ),
+            Self::InvalidOccupancy { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} has occupancy exceeding vehicle capacity"
+            ),
         }
     }
 }

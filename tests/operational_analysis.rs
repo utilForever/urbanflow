@@ -46,6 +46,8 @@ fn analysis_errors_support_standard_error_propagation_and_diagnostics() {
             "9",
         ),
         (AnalysisError::TimeOverflow, "overflow"),
+        (AnalysisError::InvalidCapacity { snapshot_index: 2 }, "2"),
+        (AnalysisError::InvalidOccupancy { snapshot_index: 3 }, "3"),
     ] {
         assert!(error.to_string().contains(detail));
     }
