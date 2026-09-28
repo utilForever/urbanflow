@@ -766,6 +766,67 @@ fn vehicle_occupancy_rejects_invalid_recordings_without_mutation() {
 }
 
 #[test]
+fn vehicle_occupancy_checks_passenger_tick_overflow() {
+    let mut product = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    product.snapshots[2].tick = u64::MAX;
+
+    let mut sum = product.clone();
+    sum.snapshots[1].tick = 1 << 62;
+
+    let mut initial = sum.snapshots[1].clone();
+    initial.tick = 0;
+
+    sum.snapshots[0] = initial;
+    sum.snapshots[2].tick = 1 << 63;
+
+    for trace in [product, sum] {
+        let before = trace.clone();
+        assert_eq!(
+            VehicleOccupancy::from_trace(&trace),
+            Err(AnalysisError::TimeOverflow)
+        );
+        assert_eq!(trace, before);
+    }
+
+    let mut boundary = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 1)], 1);
+    boundary.snapshots.remove(0);
+    boundary.snapshots[0].tick = 0;
+    boundary.snapshots[1].tick = u64::MAX;
+
+    assert_eq!(
+        VehicleOccupancy::from_trace(&boundary),
+        Ok(VehicleOccupancy {
+            capacity: 1,
+            max_occupancy: 1,
+            occupied_passenger_ticks: u64::MAX,
+            mean_occupancy: Some(1.0),
+            max_load_factor: Some(1.0),
+            mean_load_factor: Some(1.0),
+        })
+    );
+}
+
+#[test]
+fn vehicle_occupancy_keeps_rounded_means_within_recorded_bounds() {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 3)], 3);
+    trace.snapshots.remove(0);
+    trace.snapshots[0].tick = 0;
+    trace.snapshots[1].tick = 9_007_199_254_740_993;
+
+    assert_eq!(
+        VehicleOccupancy::from_trace(&trace),
+        Ok(VehicleOccupancy {
+            capacity: 3,
+            max_occupancy: 3,
+            occupied_passenger_ticks: 27_021_597_764_222_979,
+            mean_occupancy: Some(3.0),
+            max_load_factor: Some(1.0),
+            mean_load_factor: Some(1.0),
+        })
+    );
+}
+
+#[test]
 fn operational_results_own_ordered_stop_visits_and_wide_totals() {
     let unserved = u64::from(u32::MAX) + 1;
     let analysis = {
