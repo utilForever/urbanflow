@@ -695,6 +695,77 @@ fn vehicle_occupancy_distinguishes_empty_service_from_no_active_intervals() {
 }
 
 #[test]
+fn vehicle_occupancy_rejects_invalid_recordings_without_mutation() {
+    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    let mut cases = vec![(
+        RailTrace {
+            snapshots: vec![],
+            completed: true,
+        },
+        AnalysisError::EmptyTrace,
+    )];
+
+    let mut incomplete = trace.clone();
+    incomplete.completed = false;
+
+    cases.push((incomplete, AnalysisError::IncompleteTrace));
+
+    let mut incomplete = trace.clone();
+    incomplete.snapshots.pop();
+
+    cases.push((incomplete, AnalysisError::IncompleteTrace));
+
+    let mut unfinished = trace.clone();
+    unfinished.snapshots[2].passengers[0].waiting = 1;
+
+    cases.push((
+        unfinished,
+        AnalysisError::UnfinishedPassengers { demand_index: 0 },
+    ));
+
+    for tick in [0, 2, 3] {
+        let mut invalid = trace.clone();
+        invalid.snapshots[1].tick = tick;
+
+        cases.push((
+            invalid,
+            AnalysisError::InvalidTickOrder {
+                snapshot_index: if tick == 0 { 1 } else { 2 },
+            },
+        ));
+    }
+
+    for snapshot_index in 0..trace.snapshots.len() {
+        for capacity in [0, 7] {
+            let mut invalid = trace.clone();
+            invalid.snapshots[snapshot_index].capacity = capacity;
+
+            cases.push((
+                invalid,
+                AnalysisError::InvalidCapacity {
+                    snapshot_index: if snapshot_index == 0 && capacity != 0 {
+                        1
+                    } else {
+                        snapshot_index
+                    },
+                },
+            ));
+        }
+
+        let mut invalid = trace.clone();
+        invalid.snapshots[snapshot_index].occupancy = 7;
+
+        cases.push((invalid, AnalysisError::InvalidOccupancy { snapshot_index }));
+    }
+
+    for (invalid, error) in cases {
+        let before = invalid.clone();
+        assert_eq!(VehicleOccupancy::from_trace(&invalid), Err(error));
+        assert_eq!(invalid, before);
+    }
+}
+
+#[test]
 fn operational_results_own_ordered_stop_visits_and_wide_totals() {
     let unserved = u64::from(u32::MAX) + 1;
     let analysis = {
