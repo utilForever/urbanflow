@@ -215,6 +215,210 @@ fn passenger_outcomes_require_conservation_per_terminal_demand() {
 }
 
 #[test]
+fn passenger_times_exclude_unserved_waiting_from_arrived_means() {
+    let trace = completed_trace(
+        &[
+            Demand::new(NodeId(8), NodeId(3), 4),
+            Demand::new(NodeId(8), NodeId(3), 4),
+            Demand::new(NodeId(3), NodeId(8), 3),
+            Demand::new(NodeId(21), NodeId(3), 2),
+            Demand::new(NodeId(8), NodeId(3), 0),
+        ],
+        6,
+    );
+    let before = trace.clone();
+
+    // All 13 wait during [0, 1); six board at tick 1 and arrive at tick 2.
+    assert_eq!(
+        PassengerTimes::from_trace(&trace),
+        Ok(PassengerTimes {
+            waiting_passenger_ticks: 20,
+            onboard_passenger_ticks: 6,
+            arrived_waiting_passenger_ticks: 6,
+            arrived_onboard_passenger_ticks: 6,
+            mean_waiting_ticks: Some(1.0),
+            mean_onboard_ticks: Some(1.0),
+            mean_journey_ticks: Some(2.0),
+        })
+    );
+    assert_eq!(trace, before);
+}
+
+#[test]
+fn passenger_times_have_no_means_without_arrivals() {
+    for (demands, waiting) in [
+        (vec![], 0),
+        (vec![Demand::new(NodeId(8), NodeId(3), 0)], 0),
+        (vec![Demand::new(NodeId(3), NodeId(8), 2)], 4),
+    ] {
+        assert_eq!(
+            PassengerTimes::from_trace(&completed_trace(&demands, 6)),
+            Ok(PassengerTimes {
+                waiting_passenger_ticks: waiting,
+                onboard_passenger_ticks: 0,
+                arrived_waiting_passenger_ticks: 0,
+                arrived_onboard_passenger_ticks: 0,
+                mean_waiting_ticks: None,
+                mean_onboard_ticks: None,
+                mean_journey_ticks: None,
+            })
+        );
+    }
+}
+
+#[test]
+fn passenger_times_reject_invalid_recordings_without_mutation() {
+    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    let mut cases = vec![(
+        RailTrace {
+            snapshots: vec![],
+            completed: true,
+        },
+        AnalysisError::EmptyTrace,
+    )];
+
+    let mut incomplete = trace.clone();
+    incomplete.completed = false;
+
+    cases.push((incomplete, AnalysisError::IncompleteTrace));
+
+    for tick in [0, 2, 3] {
+        let mut invalid = trace.clone();
+        invalid.snapshots[1].tick = tick;
+
+        cases.push((
+            invalid,
+            AnalysisError::InvalidTickOrder {
+                snapshot_index: if tick == 0 { 1 } else { 2 },
+            },
+        ));
+    }
+
+    for missing in [false, true] {
+        let mut invalid = trace.clone();
+
+        if missing {
+            invalid.snapshots[1].passengers.clear();
+        } else {
+            invalid.snapshots[1].passengers[0].demand.origin = NodeId(99);
+        }
+
+        cases.push((
+            invalid,
+            AnalysisError::InconsistentDemands { snapshot_index: 1 },
+        ));
+    }
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[0].passengers[0].waiting = 1;
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidPassengerCounts { demand_index: 0 },
+    ));
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[1].passengers[0].onboard = 1;
+    invalid.snapshots[1].passengers[0].arrived = 1;
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidPassengerTransition {
+            snapshot_index: 1,
+            demand_index: 0,
+        },
+    ));
+
+    for (waiting, onboard, arrived, unserved) in [(1, 1, 0, 0), (1, 0, 1, 0), (1, 0, 0, 1)] {
+        let mut invalid = trace.clone();
+
+        let record = &mut invalid.snapshots[0].passengers[0];
+        record.waiting = waiting;
+        record.onboard = onboard;
+        record.arrived = arrived;
+        record.unserved = unserved;
+
+        invalid.snapshots[1].passengers[0] = trace.snapshots[0].passengers[0];
+
+        cases.push((
+            invalid,
+            AnalysisError::InvalidPassengerTransition {
+                snapshot_index: 1,
+                demand_index: 0,
+            },
+        ));
+    }
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[1].passengers[0].onboard = 1;
+    invalid.snapshots[1].passengers[0].unserved = 1;
+    invalid.snapshots[2].passengers[0].arrived = 1;
+    invalid.snapshots[2].passengers[0].unserved = 1;
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidPassengerTransition {
+            snapshot_index: 1,
+            demand_index: 0,
+        },
+    ));
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[2].passengers[0].arrived = 1;
+    invalid.snapshots[2].passengers[0].waiting = 1;
+
+    cases.push((
+        invalid,
+        AnalysisError::UnfinishedPassengers { demand_index: 0 },
+    ));
+
+    for (invalid, error) in cases {
+        let before = invalid.clone();
+        assert_eq!(PassengerTimes::from_trace(&invalid), Err(error));
+        assert_eq!(invalid, before);
+    }
+}
+
+#[test]
+fn passenger_times_check_products_totals_and_combined_journey_overflow() {
+    let mut waiting_product = completed_trace(&[Demand::new(NodeId(3), NodeId(8), 2)], 6);
+    waiting_product.snapshots[1].tick = u64::MAX - 1;
+    waiting_product.snapshots[2].tick = u64::MAX;
+
+    let mut onboard_product = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    onboard_product.snapshots[2].tick = u64::MAX;
+
+    let mut waiting_sum = completed_trace(&[Demand::new(NodeId(3), NodeId(8), u32::MAX); 2], 6);
+    waiting_sum.snapshots[1].tick = 1 << 32;
+    waiting_sum.snapshots[2].tick = (1 << 32) + 1;
+
+    let mut journey_sum = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    journey_sum.snapshots[1].tick = 1 << 62;
+    journey_sum.snapshots[2].tick = 1 << 63;
+
+    for trace in [waiting_product, onboard_product, waiting_sum, journey_sum] {
+        let before = trace.clone();
+
+        assert_eq!(
+            PassengerTimes::from_trace(&trace),
+            Err(AnalysisError::TimeOverflow)
+        );
+        assert_eq!(trace, before);
+    }
+
+    let mut boundary = completed_trace(&[Demand::new(NodeId(3), NodeId(8), 1)], 6);
+    boundary.snapshots[1].tick = u64::MAX - 1;
+    boundary.snapshots[2].tick = u64::MAX;
+
+    assert_eq!(
+        PassengerTimes::from_trace(&boundary)
+            .unwrap()
+            .waiting_passenger_ticks,
+        u64::MAX
+    );
+}
+
+#[test]
 fn operational_results_own_ordered_stop_visits_and_wide_totals() {
     let unserved = u64::from(u32::MAX) + 1;
     let analysis = {
