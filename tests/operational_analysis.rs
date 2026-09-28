@@ -53,6 +53,53 @@ fn passenger_outcomes_use_final_counts_including_duplicate_and_ineligible_demand
 }
 
 #[test]
+fn passenger_outcomes_handle_empty_zero_all_served_and_all_unserved_demand() {
+    for (demands, requested, arrived, unserved, served_share) in [
+        (vec![], 0, 0, 0, None),
+        (vec![Demand::new(NodeId(8), NodeId(3), 0)], 0, 0, 0, None),
+        (
+            vec![Demand::new(NodeId(8), NodeId(3), 2)],
+            2,
+            2,
+            0,
+            Some(1.0),
+        ),
+        (
+            vec![Demand::new(NodeId(3), NodeId(8), 2)],
+            2,
+            0,
+            2,
+            Some(0.0),
+        ),
+    ] {
+        assert_eq!(
+            PassengerOutcomes::from_trace(&completed_trace(&demands, 6)),
+            Ok(PassengerOutcomes {
+                requested,
+                arrived,
+                unserved,
+                served_share,
+            })
+        );
+    }
+}
+
+#[test]
+fn passenger_outcomes_preserve_totals_larger_than_one_demand() {
+    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), u32::MAX); 2], 1);
+
+    assert_eq!(
+        PassengerOutcomes::from_trace(&trace),
+        Ok(PassengerOutcomes {
+            requested: 8_589_934_590,
+            arrived: 1,
+            unserved: 8_589_934_589,
+            served_share: Some(1.0 / 8_589_934_590.0),
+        })
+    );
+}
+
+#[test]
 fn passenger_outcomes_require_a_nonempty_completed_trace_and_terminal_position() {
     for completed in [false, true] {
         assert_eq!(
