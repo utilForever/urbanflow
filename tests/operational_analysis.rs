@@ -245,6 +245,141 @@ fn passenger_times_exclude_unserved_waiting_from_arrived_means() {
 }
 
 #[test]
+fn passenger_times_follow_separate_boarding_batches_and_include_onboard_dwell() {
+    let mut network = Network::new();
+    let outbound = network
+        .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+    let inbound = network
+        .add_edge(NodeId(3), NodeId(8), EdgeKind::Rail)
+        .unwrap();
+    let route = RailRoute::new(&network, vec![outbound, inbound, outbound]).unwrap();
+    let mut vehicle = RailVehicle::new(route, 2, 2, 2).unwrap();
+    let trace = vehicle
+        .record_trace(
+            &mut SimulationClock::default(),
+            &mut RailPassengers::new(&[Demand::new(NodeId(8), NodeId(3), 5)]),
+            12,
+        )
+        .unwrap();
+
+    // Two board at 1 and arrive at 4; two board at 8 and arrive at 12.
+    // One passenger waits all 12 ticks and is unserved.
+    let expected = PassengerTimes {
+        waiting_passenger_ticks: 30,
+        onboard_passenger_ticks: 14,
+        arrived_waiting_passenger_ticks: 18,
+        arrived_onboard_passenger_ticks: 14,
+        mean_waiting_ticks: Some(4.5),
+        mean_onboard_ticks: Some(3.5),
+        mean_journey_ticks: Some(8.0),
+    };
+    assert_eq!(PassengerTimes::from_trace(&trace), Ok(expected));
+
+    let mut shifted = trace.clone();
+
+    for snapshot in &mut shifted.snapshots {
+        snapshot.tick += 100;
+    }
+
+    assert_eq!(PassengerTimes::from_trace(&shifted), Ok(expected));
+}
+
+#[test]
+fn passenger_times_handle_alighting_and_boarding_the_same_demand_at_one_tick() {
+    let mut network = Network::new();
+    let outbound = network
+        .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+    let inbound = network
+        .add_edge(NodeId(3), NodeId(8), EdgeKind::Rail)
+        .unwrap();
+    let route = RailRoute::new(&network, vec![outbound, inbound, outbound, inbound]).unwrap();
+    let mut vehicle = RailVehicle::new(route, 2, 2, 2).unwrap();
+    let trace = vehicle
+        .record_trace(
+            &mut SimulationClock::default(),
+            &mut RailPassengers::new(&[Demand::new(NodeId(8), NodeId(8), 5)]),
+            16,
+        )
+        .unwrap();
+
+    // Two ride [1, 8); two more ride [8, 16); one waits until completion.
+    assert_eq!(
+        PassengerTimes::from_trace(&trace),
+        Ok(PassengerTimes {
+            waiting_passenger_ticks: 34,
+            onboard_passenger_ticks: 30,
+            arrived_waiting_passenger_ticks: 18,
+            arrived_onboard_passenger_ticks: 30,
+            mean_waiting_ticks: Some(4.5),
+            mean_onboard_ticks: Some(7.5),
+            mean_journey_ticks: Some(12.0),
+        })
+    );
+}
+
+#[test]
+fn passenger_times_attribute_partial_arrivals_to_earliest_boardings() {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 3)], 6);
+    let active = trace.snapshots[1].clone();
+
+    trace.snapshots.splice(2..2, [active.clone(), active]);
+
+    for (tick, (snapshot, (waiting, onboard, arrived, unserved))) in trace
+        .snapshots
+        .iter_mut()
+        .zip([
+            (3, 0, 0, 0),
+            (2, 1, 0, 0),
+            (1, 2, 0, 0),
+            (1, 1, 1, 0),
+            (0, 0, 1, 2),
+        ])
+        .enumerate()
+    {
+        snapshot.tick = tick as u64;
+        snapshot.occupancy = onboard;
+
+        let record = &mut snapshot.passengers[0];
+        record.waiting = waiting;
+        record.onboard = onboard;
+        record.arrived = arrived;
+        record.unserved = unserved;
+    }
+
+    // Explicit accounting can leave onboard passengers unserved. The arrival
+    // at 3 belongs to the first boarding at 1, not the second boarding at 2.
+    assert_eq!(
+        PassengerTimes::from_trace(&trace),
+        Ok(PassengerTimes {
+            waiting_passenger_ticks: 7,
+            onboard_passenger_ticks: 4,
+            arrived_waiting_passenger_ticks: 1,
+            arrived_onboard_passenger_ticks: 2,
+            mean_waiting_ticks: Some(1.0),
+            mean_onboard_ticks: Some(2.0),
+            mean_journey_ticks: Some(3.0),
+        })
+    );
+
+    trace.snapshots.drain(..3);
+
+    assert_eq!(
+        PassengerTimes::from_trace(&trace),
+        Ok(PassengerTimes {
+            waiting_passenger_ticks: 1,
+            onboard_passenger_ticks: 1,
+            arrived_waiting_passenger_ticks: 0,
+            arrived_onboard_passenger_ticks: 0,
+            mean_waiting_ticks: Some(0.0),
+            mean_onboard_ticks: Some(0.0),
+            mean_journey_ticks: Some(0.0),
+        })
+    );
+}
+
+#[test]
 fn passenger_times_have_no_means_without_arrivals() {
     for (demands, waiting) in [
         (vec![], 0),
@@ -264,6 +399,40 @@ fn passenger_times_have_no_means_without_arrivals() {
             })
         );
     }
+}
+
+#[test]
+fn passenger_times_measure_only_recorded_intervals() {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    trace.snapshots.remove(0);
+
+    assert_eq!(
+        PassengerTimes::from_trace(&trace),
+        Ok(PassengerTimes {
+            waiting_passenger_ticks: 0,
+            onboard_passenger_ticks: 2,
+            arrived_waiting_passenger_ticks: 0,
+            arrived_onboard_passenger_ticks: 2,
+            mean_waiting_ticks: Some(0.0),
+            mean_onboard_ticks: Some(1.0),
+            mean_journey_ticks: Some(1.0),
+        })
+    );
+
+    trace.snapshots.remove(0);
+
+    assert_eq!(
+        PassengerTimes::from_trace(&trace),
+        Ok(PassengerTimes {
+            waiting_passenger_ticks: 0,
+            onboard_passenger_ticks: 0,
+            arrived_waiting_passenger_ticks: 0,
+            arrived_onboard_passenger_ticks: 0,
+            mean_waiting_ticks: Some(0.0),
+            mean_onboard_ticks: Some(0.0),
+            mean_journey_ticks: Some(0.0),
+        })
+    );
 }
 
 #[test]
