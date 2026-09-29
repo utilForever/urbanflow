@@ -3,7 +3,7 @@ use urbanflow::analysis::{
     StopActivity, VehicleOccupancy,
 };
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailRoute, RailTrace, RailVehicle};
+use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailTrace, RailVehicle};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, NodeId};
 
@@ -154,6 +154,233 @@ fn stop_activity_preserves_repeated_visits_and_simultaneous_boarding_and_alighti
         .collect();
 
         assert_eq!(StopActivity::from_trace(&trace), Ok(expected));
+    }
+}
+
+#[test]
+fn stop_activity_keeps_empty_visits_and_checked_wide_waiting_counts() {
+    for (demands, waiting) in [
+        (vec![], 0),
+        (vec![Demand::new(NodeId(8), NodeId(3), 0)], 0),
+        (
+            vec![Demand::new(NodeId(8), NodeId(99), u32::MAX); 2],
+            8_589_934_590,
+        ),
+    ] {
+        let mut trace = completed_trace(&demands, 1);
+
+        // A full service can start at a nonzero clock, even near its limit.
+        for snapshot in &mut trace.snapshots {
+            snapshot.tick += u64::MAX - 2;
+        }
+
+        assert_eq!(
+            StopActivity::from_trace(&trace),
+            Ok(vec![
+                StopActivity {
+                    stop_index: 0,
+                    node: NodeId(8),
+                    boarded: 0,
+                    alighted: 0,
+                    remaining_waiting: waiting
+                },
+                StopActivity {
+                    stop_index: 1,
+                    node: NodeId(3),
+                    boarded: 0,
+                    alighted: 0,
+                    remaining_waiting: 0
+                },
+            ])
+        );
+    }
+}
+
+#[test]
+fn stop_activity_requires_full_recording_and_consistent_stop_and_passenger_data() {
+    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    let mut cases = vec![(
+        RailTrace {
+            snapshots: vec![],
+            completed: true,
+        },
+        AnalysisError::EmptyTrace,
+    )];
+
+    let mut invalid = trace.clone();
+    invalid.completed = false;
+
+    cases.push((invalid, AnalysisError::IncompleteTrace));
+
+    for first in [1, 2] {
+        let mut invalid = trace.clone();
+        invalid.snapshots.drain(..first);
+
+        cases.push((invalid, AnalysisError::MissingInitialState));
+    }
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[0].passengers[0].waiting = 1;
+    invalid.snapshots[0].passengers[0].onboard = 1;
+
+    cases.push((invalid, AnalysisError::MissingInitialState));
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[1].tick = 0;
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidTickOrder { snapshot_index: 1 },
+    ));
+
+    let mut invalid = trace.clone();
+    invalid.snapshots.remove(1);
+
+    cases.push((
+        invalid,
+        AnalysisError::NonContiguousTicks { snapshot_index: 1 },
+    ));
+
+    for missing in [false, true] {
+        let mut invalid = trace.clone();
+
+        if missing {
+            invalid.snapshots[1].passengers.clear();
+        } else {
+            invalid.snapshots[1].passengers[0].demand.origin = NodeId(99);
+        }
+
+        cases.push((
+            invalid,
+            AnalysisError::InconsistentDemands { snapshot_index: 1 },
+        ));
+    }
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[1].passengers[0].onboard = 1;
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidPassengerCounts { demand_index: 0 },
+    ));
+
+    for position in [
+        RailPosition::Complete {
+            stop_index: 2,
+            node: NodeId(3),
+        },
+        RailPosition::Complete {
+            stop_index: 1,
+            node: NodeId(99),
+        },
+    ] {
+        let mut invalid = trace.clone();
+        invalid.snapshots[2].position = position;
+
+        cases.push((
+            invalid,
+            AnalysisError::InvalidStopSequence { snapshot_index: 2 },
+        ));
+    }
+
+    let mut invalid = trace.clone();
+
+    if let RailPosition::Traveling {
+        ref mut edge_index, ..
+    } = invalid.snapshots[1].position
+    {
+        *edge_index = usize::MAX;
+    }
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidStopSequence { snapshot_index: 1 },
+    ));
+
+    for (change_origin, snapshot_index) in [(true, 1), (false, 2)] {
+        let mut invalid = trace.clone();
+
+        for snapshot in &mut invalid.snapshots {
+            let demand = &mut snapshot.passengers[0].demand;
+
+            if change_origin {
+                demand.origin = NodeId(99);
+            } else {
+                demand.destination = NodeId(99);
+            }
+        }
+
+        cases.push((
+            invalid,
+            AnalysisError::InvalidPassengerTransition {
+                snapshot_index,
+                demand_index: 0,
+            },
+        ));
+    }
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[1].passengers[0].onboard = 1;
+    invalid.snapshots[1].passengers[0].arrived = 1;
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidPassengerTransition {
+            snapshot_index: 1,
+            demand_index: 0,
+        },
+    ));
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[1].passengers[0].onboard = 0;
+    invalid.snapshots[1].passengers[0].unserved = 2;
+    invalid.snapshots[2].passengers[0].arrived = 0;
+    invalid.snapshots[2].passengers[0].unserved = 2;
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidPassengerTransition {
+            snapshot_index: 1,
+            demand_index: 0,
+        },
+    ));
+
+    for (invalid, error) in cases {
+        let before = invalid.clone();
+        assert_eq!(StopActivity::from_trace(&invalid), Err(error));
+        assert_eq!(invalid, before);
+    }
+}
+
+#[test]
+fn stop_activity_rejects_passenger_changes_during_travel_or_later_dwell() {
+    for dwell in [false, true] {
+        let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+        trace.snapshots.insert(2, trace.snapshots[1].clone());
+
+        for (tick, snapshot) in trace.snapshots.iter_mut().enumerate() {
+            snapshot.tick = tick as u64;
+        }
+
+        if dwell {
+            trace.snapshots[1].position = RailPosition::AtStop {
+                stop_index: 0,
+                node: NodeId(8),
+                dwell_ticks_remaining: 1,
+            };
+        }
+
+        trace.snapshots[1].passengers[0].waiting = 1;
+        trace.snapshots[1].passengers[0].onboard = 1;
+        trace.snapshots[1].occupancy = 1;
+
+        assert_eq!(
+            StopActivity::from_trace(&trace),
+            Err(AnalysisError::InvalidPassengerTransition {
+                snapshot_index: 2,
+                demand_index: 0,
+            })
+        );
     }
 }
 
