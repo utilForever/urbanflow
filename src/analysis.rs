@@ -103,6 +103,39 @@ impl fmt::Display for AnalysisError {
 
 impl std::error::Error for AnalysisError {}
 
+fn validate_passenger_records(trace: &RailTrace) -> Result<(), AnalysisError> {
+    let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
+
+    for (snapshot_index, snapshot) in trace.snapshots.iter().enumerate() {
+        if snapshot.passengers.len() != final_snapshot.passengers.len() {
+            return Err(AnalysisError::InconsistentDemands { snapshot_index });
+        }
+
+        for (demand_index, (record, final_record)) in snapshot
+            .passengers
+            .iter()
+            .zip(&final_snapshot.passengers)
+            .enumerate()
+        {
+            if record.demand != final_record.demand {
+                return Err(AnalysisError::InconsistentDemands { snapshot_index });
+            }
+
+            if record
+                .waiting
+                .checked_add(record.onboard)
+                .and_then(|count| count.checked_add(record.arrived))
+                .and_then(|count| count.checked_add(record.unserved))
+                != Some(record.demand.amount)
+            {
+                return Err(AnalysisError::InvalidPassengerCounts { demand_index });
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Owned passenger, vehicle, stop, and timing summaries for a completed service.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OperationalAnalysis {
@@ -258,35 +291,10 @@ impl PassengerTimes {
     /// outside this operation; a gap uses the starting counts for its duration.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
         let outcomes = PassengerOutcomes::from_trace(trace)?;
+
+        validate_passenger_records(trace)?;
+
         let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
-
-        for (snapshot_index, snapshot) in trace.snapshots.iter().enumerate() {
-            if snapshot.passengers.len() != final_snapshot.passengers.len() {
-                return Err(AnalysisError::InconsistentDemands { snapshot_index });
-            }
-
-            for (demand_index, (record, final_record)) in snapshot
-                .passengers
-                .iter()
-                .zip(&final_snapshot.passengers)
-                .enumerate()
-            {
-                if record.demand != final_record.demand {
-                    return Err(AnalysisError::InconsistentDemands { snapshot_index });
-                }
-
-                if record
-                    .waiting
-                    .checked_add(record.onboard)
-                    .and_then(|count| count.checked_add(record.arrived))
-                    .and_then(|count| count.checked_add(record.unserved))
-                    != Some(record.demand.amount)
-                {
-                    return Err(AnalysisError::InvalidPassengerCounts { demand_index });
-                }
-            }
-        }
-
         let mut totals = [0u64; 4];
 
         for (index, pair) in trace.snapshots.windows(2).enumerate() {
