@@ -4,7 +4,8 @@
 //! completion and terminal passenger validation. [`PassengerTimes::from_trace`]
 //! derives passenger-ticks and arrived-passenger means over recorded intervals.
 //! [`VehicleOccupancy::from_trace`] derives capacity use over active intervals.
-//! Other result types remain data contracts; full trace validation and the
+//! [`StopActivity::from_trace`] summarizes each visit in a full service recording.
+//! Route timing remains a data contract; full trace validation and the
 //! remaining calculations are not yet implemented.
 //! Public fields permit caller construction without validation.
 //! Unlike [`crate::metrics::Metrics`], these summaries describe a recorded
@@ -518,6 +519,207 @@ pub struct StopActivity {
     /// Includes ineligible demand. At the final stop, count before remaining
     /// passengers become unserved. Later visits do not revise earlier entries.
     pub remaining_waiting: u64,
+}
+
+impl StopActivity {
+    /// Summarizes every stop visit in route order without modifying the trace.
+    ///
+    /// Requires a full recording: stop zero with all passengers waiting, then
+    /// every tick through completion. The initial clock tick may be nonzero.
+    /// Unlike the other summaries, missing visits cannot be reconstructed from
+    /// a recording started during service or containing only completion.
+    ///
+    /// Stop zero is processed on the first advance; other stops on arrival.
+    /// Boarding is the decrease in waiting and alighting is the increase in
+    /// arrived counts, so simultaneous boarding and alighting are both retained.
+    /// Duplicate demands contribute separately. Empty visits and repeated nodes
+    /// remain separate entries in route order, with no sorting by node ID.
+    /// Remaining waiting includes ineligible demand originating at that node.
+    /// At completion, boarding is zero and waiting uses the preceding snapshot,
+    /// before waiting and leftover onboard passengers become unserved.
+    ///
+    /// # Errors
+    ///
+    /// Applies [`PassengerOutcomes::from_trace`] validation first, then checks
+    /// ordered demands and count conservation as for [`PassengerTimes::from_trace`].
+    /// A missing initial stop or non-waiting initial passenger state returns
+    /// [`AnalysisError::MissingInitialState`]. Each interval requires increasing
+    /// ticks ([`AnalysisError::InvalidTickOrder`]) exactly one apart
+    /// ([`AnalysisError::NonContiguousTicks`]), followed by consistent stop/edge
+    /// indices and nodes ([`AnalysisError::InvalidStopSequence`]).
+    ///
+    /// Counts may change only at stop processing: waiting decreases at its
+    /// origin, arrivals increase at their destination from previously onboard
+    /// passengers, and unserved counts change only at completion. Violations
+    /// return [`AnalysisError::InvalidPassengerTransition`]. Error indices are
+    /// zero-based; interval errors identify the later snapshot. Checked totals
+    /// return [`AnalysisError::CountOverflow`], never a partial result.
+    /// Capacity, occupancy, travel/dwell durations, boarding eligibility, and
+    /// agreement with an external network are outside this calculation.
+    pub fn from_trace(trace: &RailTrace) -> Result<Vec<Self>, AnalysisError> {
+        PassengerOutcomes::from_trace(trace)?;
+        validate_passenger_records(trace)?;
+
+        let initial = &trace.snapshots[0];
+
+        if !matches!(initial.position, RailPosition::AtStop { stop_index: 0, .. })
+            || initial
+                .passengers
+                .iter()
+                .any(|record| record.waiting != record.demand.amount)
+        {
+            return Err(AnalysisError::MissingInitialState);
+        }
+
+        let mut stops = Vec::new();
+
+        for (index, pair) in trace.snapshots.windows(2).enumerate() {
+            let current = &pair[0];
+            let next = &pair[1];
+            let snapshot_index = index + 1;
+            let ticks = next
+                .tick
+                .checked_sub(current.tick)
+                .filter(|&ticks| ticks > 0)
+                .ok_or(AnalysisError::InvalidTickOrder { snapshot_index })?;
+
+            if ticks != 1 {
+                return Err(AnalysisError::NonContiguousTicks { snapshot_index });
+            }
+
+            let invalid_stop = AnalysisError::InvalidStopSequence { snapshot_index };
+            let visit = match (current.position, next.position) {
+                (
+                    RailPosition::AtStop {
+                        stop_index, node, ..
+                    },
+                    RailPosition::AtStop {
+                        stop_index: next_index,
+                        node: next_node,
+                        ..
+                    }
+                    | RailPosition::Traveling {
+                        edge_index: next_index,
+                        from: next_node,
+                        ..
+                    },
+                ) if (stop_index, node) == (next_index, next_node) => {
+                    (index == 0).then_some((stop_index, node))
+                }
+                (
+                    RailPosition::Traveling { edge_index, to, .. },
+                    RailPosition::AtStop {
+                        stop_index, node, ..
+                    }
+                    | RailPosition::Complete { stop_index, node },
+                ) if edge_index.checked_add(1) == Some(stop_index) && to == node => {
+                    Some((stop_index, node))
+                }
+                (
+                    RailPosition::Traveling {
+                        edge_index,
+                        edge,
+                        from,
+                        to,
+                        ..
+                    },
+                    RailPosition::Traveling {
+                        edge_index: next_index,
+                        edge: next_edge,
+                        from: next_from,
+                        to: next_to,
+                        ..
+                    },
+                ) if (edge_index, edge, from, to)
+                    == (next_index, next_edge, next_from, next_to) =>
+                {
+                    None
+                }
+                _ => return Err(invalid_stop),
+            };
+
+            let Some((stop_index, node)) = visit else {
+                for (demand_index, (record, next_record)) in
+                    current.passengers.iter().zip(&next.passengers).enumerate()
+                {
+                    if record != next_record {
+                        return Err(AnalysisError::InvalidPassengerTransition {
+                            snapshot_index,
+                            demand_index,
+                        });
+                    }
+                }
+                continue;
+            };
+
+            if stop_index != stops.len() {
+                return Err(invalid_stop);
+            }
+
+            let complete = matches!(next.position, RailPosition::Complete { .. });
+            let mut activity = Self {
+                stop_index,
+                node,
+                boarded: 0,
+                alighted: 0,
+                remaining_waiting: 0,
+            };
+
+            for (demand_index, (record, next_record)) in
+                current.passengers.iter().zip(&next.passengers).enumerate()
+            {
+                let invalid_transition = AnalysisError::InvalidPassengerTransition {
+                    snapshot_index,
+                    demand_index,
+                };
+                let alighted = next_record
+                    .arrived
+                    .checked_sub(record.arrived)
+                    .filter(|&count| count <= record.onboard)
+                    .ok_or(invalid_transition)?;
+                let boarded = if complete {
+                    0
+                } else {
+                    record
+                        .waiting
+                        .checked_sub(next_record.waiting)
+                        .ok_or(invalid_transition)?
+                };
+
+                if (boarded != 0 && record.demand.origin != node)
+                    || (alighted != 0 && record.demand.destination != node)
+                    || (!complete && next_record.unserved != record.unserved)
+                {
+                    return Err(invalid_transition);
+                }
+
+                activity.boarded = activity
+                    .boarded
+                    .checked_add(u64::from(boarded))
+                    .ok_or(AnalysisError::CountOverflow)?;
+                activity.alighted = activity
+                    .alighted
+                    .checked_add(u64::from(alighted))
+                    .ok_or(AnalysisError::CountOverflow)?;
+
+                if record.demand.origin == node {
+                    let waiting = if complete {
+                        record.waiting
+                    } else {
+                        next_record.waiting
+                    };
+                    activity.remaining_waiting = activity
+                        .remaining_waiting
+                        .checked_add(u64::from(waiting))
+                        .ok_or(AnalysisError::CountOverflow)?;
+                }
+            }
+
+            stops.push(activity);
+        }
+
+        Ok(stops)
+    }
 }
 
 /// Duration of the recorded service, excluding any final-stop dwell.

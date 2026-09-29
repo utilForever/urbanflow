@@ -77,6 +77,87 @@ fn completed_trace(demands: &[Demand], capacity: u32) -> RailTrace {
 }
 
 #[test]
+fn stop_activity_counts_duplicate_demands_and_final_waiting_before_completion() {
+    let trace = completed_trace(
+        &[
+            Demand::new(NodeId(8), NodeId(3), 4),
+            Demand::new(NodeId(8), NodeId(3), 4),
+            Demand::new(NodeId(8), NodeId(99), 2),
+            Demand::new(NodeId(3), NodeId(8), 3),
+            Demand::new(NodeId(21), NodeId(3), 2),
+            Demand::new(NodeId(8), NodeId(3), 0),
+        ],
+        6,
+    );
+    let before = trace.clone();
+    let expected = vec![
+        StopActivity {
+            stop_index: 0,
+            node: NodeId(8),
+            boarded: 6,
+            alighted: 0,
+            remaining_waiting: 4,
+        },
+        StopActivity {
+            stop_index: 1,
+            node: NodeId(3),
+            boarded: 0,
+            alighted: 6,
+            remaining_waiting: 3,
+        },
+    ];
+
+    assert_eq!(StopActivity::from_trace(&trace), Ok(expected.clone()));
+    assert_eq!(StopActivity::from_trace(&trace), Ok(expected));
+    assert_eq!(trace, before);
+}
+
+#[test]
+fn stop_activity_preserves_repeated_visits_and_simultaneous_boarding_and_alighting() {
+    for dwell in [1, 3] {
+        let mut network = Network::new();
+        let outbound = network
+            .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
+            .unwrap();
+        let inbound = network
+            .add_edge(NodeId(3), NodeId(8), EdgeKind::Rail)
+            .unwrap();
+        let route = RailRoute::new(&network, vec![outbound, inbound, outbound, inbound]).unwrap();
+        let mut vehicle = RailVehicle::new(route, 2, 2, dwell).unwrap();
+        let trace = vehicle
+            .record_trace(
+                &mut SimulationClock::default(),
+                &mut RailPassengers::new(&[Demand::new(NodeId(8), NodeId(8), 5)]),
+                20,
+            )
+            .unwrap();
+
+        // At the second visit to 8, two alight and two board: occupancy stays 2.
+        let expected = [
+            (8, 2, 0, 3),
+            (3, 0, 0, 0),
+            (8, 2, 2, 1),
+            (3, 0, 0, 0),
+            (8, 0, 2, 1),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(
+            |(stop_index, (node, boarded, alighted, remaining_waiting))| StopActivity {
+                stop_index,
+                node: NodeId(node),
+                boarded,
+                alighted,
+                remaining_waiting,
+            },
+        )
+        .collect();
+
+        assert_eq!(StopActivity::from_trace(&trace), Ok(expected));
+    }
+}
+
+#[test]
 fn passenger_outcomes_use_final_counts_including_duplicate_and_ineligible_demands() {
     let mut trace = completed_trace(
         &[

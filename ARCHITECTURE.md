@@ -33,16 +33,16 @@ The library owns simulation rules. Owned observations, snapshots, and traces let
 
 ## Module Map
 
-| Modules                                                                                               | Visibility    | Responsibility                                                              |
-| ----------------------------------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------------- |
-| [`world`](src/world.rs), [`demand`](src/demand.rs)                                                    | Public        | Nodes, directed edges, mode capacities and costs, and passenger demand      |
-| [`network`](src/network.rs)                                                                           | Public        | Derived adjacency index and directed shortest-path queries                  |
-| [`simulation`](src/simulation.rs)                                                                     | Crate-private | Capacity allocation and aggregate metrics, invoked through `Env`            |
-| [`env`](src/env.rs), [`action`](src/action.rs)                                                        | Public        | Scenario lifecycle, action validation, episode state, and rewards           |
-| [`time`](src/time.rs)                                                                                 | Public        | Checked integer simulation clock                                            |
-| [`rail`](src/rail.rs)                                                                                 | Public        | Validated routes, vehicle ticks, passenger lifecycle, snapshots, and traces |
-| [`analysis`](src/analysis.rs)                                                                         | Public        | Operational results and checked passenger and vehicle occupancy summaries   |
-| [`metrics`](src/metrics.rs), [`observation`](src/observation.rs), [`step_result`](src/step_result.rs) | Public        | Owned outputs for callers                                                   |
+| Modules                                                                                               | Visibility    | Responsibility                                                                   |
+| ----------------------------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------- |
+| [`world`](src/world.rs), [`demand`](src/demand.rs)                                                    | Public        | Nodes, directed edges, mode capacities and costs, and passenger demand           |
+| [`network`](src/network.rs)                                                                           | Public        | Derived adjacency index and directed shortest-path queries                       |
+| [`simulation`](src/simulation.rs)                                                                     | Crate-private | Capacity allocation and aggregate metrics, invoked through `Env`                 |
+| [`env`](src/env.rs), [`action`](src/action.rs)                                                        | Public        | Scenario lifecycle, action validation, episode state, and rewards                |
+| [`time`](src/time.rs)                                                                                 | Public        | Checked integer simulation clock                                                 |
+| [`rail`](src/rail.rs)                                                                                 | Public        | Validated routes, vehicle ticks, passenger lifecycle, snapshots, and traces      |
+| [`analysis`](src/analysis.rs)                                                                         | Public        | Operational results and checked passenger, vehicle occupancy, and stop summaries |
+| [`metrics`](src/metrics.rs), [`observation`](src/observation.rs), [`step_result`](src/step_result.rs) | Public        | Owned outputs for callers                                                        |
 
 ## Execution Flows
 
@@ -76,7 +76,9 @@ The caller keeps one vehicle, clock, and passenger set together. `advance` coord
 
 `VehicleOccupancy::from_trace` reuses final-outcome validation and checks positive constant capacity, occupancy within capacity, and increasing ticks. Intervals starting at `AtStop` or `Traveling` contribute starting occupancy times duration to checked `u64` passenger-ticks; intervals starting at `Complete` contribute no active time or maximum occupancy. Mean occupancy divides by summed active duration, and load factors divide by the configured capacity. No active intervals yields zero integer measurements and `None` derived values; an active empty service yields `Some(0.0)` derived values. It preserves the trace and uses only recorded intervals, including gaps and onboard dwell. Occupancy agreement with passenger records, lifecycle transitions, and route-position consistency remain outside this calculation.
 
-Other result types remain data contracts, and public fields do not validate caller-created results. Full trace consistency validation, the remaining calculations, a combined trace-to-analysis operation, and viewer integration are planned separately. Calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
+`StopActivity::from_trace` requires the initial stop with all passengers waiting and every tick through completion. It returns one entry per visit in route order, retaining empty visits and repeated nodes. The first advance processes stop zero even if the resulting snapshot is already traveling; later arrivals process their destination stop. Waiting decreases count boarding, and arrived increases count alighting, preserving simultaneous activity. Remaining waiting sums demands originating at that visit's node after boarding; the final visit uses waiting before completion converts outstanding passengers to unserved. It reuses passenger-record validation with `PassengerTimes` and checks tick contiguity, stop/edge identifiers, lifecycle transitions, and checked `u64` totals without mutating the trace. Missing initial history, gaps, and inconsistent visits return typed errors. Capacity, occupancy, detailed movement timing, and boarding eligibility remain outside this calculation.
+
+Route timing remains a data contract, and public fields do not validate caller-created results. Full trace consistency validation, route timing calculation, a combined trace-to-analysis operation, and viewer integration are planned separately. Calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
 
 ## Simulation Contracts
 
