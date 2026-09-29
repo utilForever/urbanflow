@@ -57,6 +57,12 @@ pub enum AnalysisError {
     InvalidCapacity { snapshot_index: usize },
     /// Recorded occupancy exceeds the configured capacity.
     InvalidOccupancy { snapshot_index: usize },
+    /// Stop activity requires stop zero with all passengers still waiting.
+    MissingInitialState,
+    /// Stop activity requires every tick; this snapshot skips one or more ticks.
+    NonContiguousTicks { snapshot_index: usize },
+    /// Positions cannot identify consecutive route visits and their transitions.
+    InvalidStopSequence { snapshot_index: usize },
 }
 
 impl fmt::Display for AnalysisError {
@@ -96,6 +102,16 @@ impl fmt::Display for AnalysisError {
             Self::InvalidOccupancy { snapshot_index } => write!(
                 formatter,
                 "snapshot {snapshot_index} has occupancy exceeding vehicle capacity"
+            ),
+            Self::MissingInitialState => {
+                formatter.write_str("the trace lacks the initial stop with all passengers waiting")
+            }
+            Self::NonContiguousTicks { snapshot_index } => {
+                write!(formatter, "snapshot {snapshot_index} skips recorded ticks")
+            }
+            Self::InvalidStopSequence { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} has an inconsistent route stop sequence"
             ),
         }
     }
