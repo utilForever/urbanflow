@@ -104,6 +104,12 @@ assert_eq!(trace.snapshots[2].passengers[0].arrived, 6);
 
 A trace records the initial snapshot and each subsequent tick, up to the supplied number of advances. Check `completed` to distinguish a full service replay from a run stopped by the limit. For individual ticks, use `advance()` and `snapshot()`. Timing, passenger, and error contracts are documented in the [Rail API](src/rail.rs).
 
+### Operational Analysis Result Types
+
+[`analysis::OperationalAnalysis`](src/analysis.rs) defines owned summaries for passenger outcomes and time, vehicle occupancy, ordered stop visits, and route timing. Counts and passenger-ticks use integers; undefined means and ratios use `None`. Repeated visits to the same node retain separate entries in route order.
+
+These are public data types only. Trace validation, calculation, and viewer integration are planned separately. They describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units and interval conventions.
+
 ### Browser Viewer
 
 From the repository root, generate the fixed-route demo:
