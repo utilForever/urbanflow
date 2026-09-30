@@ -34,12 +34,28 @@
       travel(1, "2", "3", "7", 0, 1),
       { kind: "Complete", stop_index: "2", node: "7" },
     ];
+    // Two demands share endpoints; both must contribute to the totals.
+    const passengerCounts = [
+      [[4, 0, 0, 0], [4, 0, 0, 0], [3, 0, 0, 0]],
+      [[0, 4, 0, 0], [2, 2, 0, 0], [3, 0, 0, 0]],
+      [[0, 4, 0, 0], [2, 2, 0, 0], [3, 0, 0, 0]],
+      [[0, 0, 4, 0], [2, 0, 2, 0], [0, 3, 0, 0]],
+      [[0, 0, 4, 0], [2, 0, 2, 0], [0, 3, 0, 0]],
+      [[0, 0, 4, 0], [0, 0, 2, 2], [0, 0, 3, 0]],
+    ];
     const snapshots = positions.map((position, index) => ({
       tick: String(18446744073709551610n + BigInt(index)),
       position,
-      occupancy: 0,
+      occupancy: [0, 6, 6, 3, 3, 0][index],
       capacity: 6,
-      passengers: [],
+      passengers: passengerCounts[index].map(
+        ([waiting, onboard, arrived, unserved], demand) => ({
+          from: demand === 2 ? "3" : "7",
+          to: demand === 2 ? "7" : "3",
+          amount: demand === 2 ? 3 : 4,
+          waiting, onboard, arrived, unserved,
+        }),
+      ),
     }));
     const fixture = {
       nodes: ["7", "3"],
@@ -130,6 +146,30 @@
       };
     }
 
+    function displays(v, id, expected) {
+      assert(
+        v.get(id)?.textContent === expected,
+        `${id} must display ${expected}; got ${v.get(id)?.textContent ?? "no value"}`,
+      );
+    }
+
+    function status(v, index) {
+      const expected = [
+        ["At stop", "Stop 0 · Node 7", "0 / 6", "11", "0", "0", "0"],
+        ["Traveling", "Edge 1 · 7 → 3", "6 / 6", "5", "6", "0", "0"],
+        ["Traveling", "Edge 1 · 7 → 3", "6 / 6", "5", "6", "0", "0"],
+        ["At stop", "Stop 1 · Node 3", "3 / 6", "2", "3", "6", "0"],
+        ["Traveling", "Edge 2 · 3 → 7", "3 / 6", "2", "3", "6", "0"],
+        ["Complete", "Stop 2 · Node 7", "0 / 6", "0", "0", "9", "2"],
+      ][index];
+      displays(v, "status-tick", snapshots[index].tick);
+      [
+        "vehicle-state", "vehicle-location", "vehicle-load",
+        "passenger-waiting", "passenger-onboard", "passenger-arrived",
+        "passenger-unserved",
+      ].forEach((id, field) => displays(v, id, expected[field]));
+    }
+
     function selected(v, index) {
       assert(
         v.get("snapshot").value === String(index),
@@ -139,6 +179,7 @@
         v.get("tick").textContent.includes(snapshots[index].tick),
         "Tick must retain its exact recorded integer label",
       );
+      status(v, index);
     }
 
     const tests = [
@@ -195,6 +236,7 @@
           v.onEdge(0, 0.35);
           const paused = v.point();
           v.advance(4000);
+          selected(v, 1);
           assert(
             JSON.stringify(v.point()) === JSON.stringify(paused),
             "Pause freezes position",
@@ -204,6 +246,7 @@
           selected(v, 2);
           v.onEdge(0, 0.5);
           v.advance(500);
+          selected(v, 2);
           v.onEdge(0, 0.75);
           v.advance(500);
           selected(v, 3);
@@ -231,6 +274,7 @@
         async () => {
           const v = await viewer();
           v.change("snapshot", 1);
+          selected(v, 1);
           v.click("play");
           v.advance(250);
           v.onEdge(0, 0.125);
@@ -247,6 +291,7 @@
           v.advance(125);
           v.onEdge(0, 0.875);
           v.change("snapshot", 4);
+          selected(v, 4);
           assert(v.get("pause").disabled, "Seeking pauses playback");
           v.advance(3000);
           v.onEdge(1, 0);
@@ -291,6 +336,15 @@
         },
       ],
       [
+        "empty passenger lists display zero totals",
+        async () => {
+          const v = await viewer([{ ...snapshots[0], passengers: [] }], false);
+          for (const field of ["waiting", "onboard", "arrived", "unserved"])
+            displays(v, `passenger-${field}`, "0");
+          displays(v, "vehicle-load", "0 / 6");
+        },
+      ],
+      [
         "empty and single-frame traces cannot start playback",
         async () => {
           for (const frames of [
@@ -321,7 +375,33 @@
                 .textContent.includes(frames[0]?.tick ?? "No snapshots"),
               "Static trace remains inspectable",
             );
+            if (frames.length) {
+              status(v, frames[0] === snapshots[0] ? 0 : 5);
+            } else {
+              displays(v, "vehicle-state", "No snapshots recorded");
+              for (const id of [
+                "status-tick", "vehicle-location", "vehicle-load",
+                "passenger-waiting", "passenger-onboard", "passenger-arrived",
+                "passenger-unserved",
+              ]) displays(v, id, "—");
+            }
           }
+        },
+      ],
+      [
+        "status panel fits below the network on narrow screens",
+        async () => {
+          const v = await viewer();
+          iframe.width = "375";
+          const doc = iframe.contentDocument;
+          const panel = doc.querySelector(".status-panel").getBoundingClientRect();
+          const network = v.get("network").getBoundingClientRect();
+          assert(panel.top >= network.bottom, "Status must follow the network");
+          assert(
+            doc.documentElement.scrollWidth <= doc.documentElement.clientWidth,
+            "The viewer must fit without horizontal scrolling",
+          );
+          selected(v, 0);
         },
       ],
     ];

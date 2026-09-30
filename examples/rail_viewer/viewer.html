@@ -19,7 +19,7 @@
         padding: 40px 20px;
       }
       main {
-        max-width: 920px;
+        max-width: 1120px;
         margin: auto;
       }
       header {
@@ -56,6 +56,50 @@
         border-radius: 16px;
         margin-top: 24px;
         overflow: hidden;
+      }
+      .service-view {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 260px;
+        align-items: center;
+      }
+      .status-panel {
+        align-self: stretch;
+        padding: 24px;
+        border-left: 1px solid #e5ebf0;
+        overflow-wrap: anywhere;
+      }
+      .status-panel h2 {
+        font-size: 18px;
+        margin: 0 0 16px;
+      }
+      .status-panel h3 {
+        font-size: 14px;
+        margin: 20px 0 12px;
+      }
+      .status-panel dl {
+        margin: 0;
+      }
+      .status-panel dt {
+        color: #4d6275;
+        font-size: 13px;
+      }
+      .status-panel dd {
+        margin: 4px 0 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .passenger-counts {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0 16px;
+      }
+      @media (max-width: 760px) {
+        .service-view {
+          grid-template-columns: 1fr;
+        }
+        .status-panel {
+          border-left: 0;
+          border-top: 1px solid #e5ebf0;
+        }
       }
       .legend {
         display: flex;
@@ -182,56 +226,92 @@
         second.
       </p>
       <section class="card" aria-label="Recorded Rail network">
-        <div class="legend" aria-label="Legend">
-          <span><i class="swatch road" aria-hidden="true"></i>Road</span>
-          <span><i class="swatch" aria-hidden="true"></i>Rail</span>
-          <span><i class="swatch vehicle" aria-hidden="true"></i>Vehicle</span>
+        <div class="service-view">
+          <div class="network-view">
+            <div class="legend" aria-label="Legend">
+              <span><i class="swatch road" aria-hidden="true"></i>Road</span>
+              <span><i class="swatch" aria-hidden="true"></i>Rail</span>
+              <span><i class="swatch vehicle" aria-hidden="true"></i>Vehicle</span>
+            </div>
+            <svg
+              id="network"
+              viewBox="0 0 800 480"
+              role="img"
+              aria-labelledby="network-title network-description"
+            >
+              <title id="network-title">
+                Directed transit network and recorded Rail vehicle
+              </title>
+              <desc id="network-description">
+                Nodes follow stored order clockwise from the top. Arrows show edge
+                direction.
+              </desc>
+              <defs>
+                <marker
+                  id="Road-arrow"
+                  viewBox="0 0 10 10"
+                  refX="22"
+                  refY="5"
+                  markerWidth="10"
+                  markerHeight="10"
+                  markerUnits="userSpaceOnUse"
+                  orient="auto"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 Z" fill="#64748b" />
+                </marker>
+                <marker
+                  id="Rail-arrow"
+                  viewBox="0 0 10 10"
+                  refX="22"
+                  refY="5"
+                  markerWidth="10"
+                  markerHeight="10"
+                  markerUnits="userSpaceOnUse"
+                  orient="auto"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 Z" fill="#087f8c" />
+                </marker>
+              </defs>
+              <g id="edges"></g>
+              <g id="nodes"></g>
+              <circle id="vehicle" r="10" visibility="hidden">
+                <title>Rail vehicle</title>
+              </circle>
+            </svg>
+          </div>
+          <aside class="status-panel" aria-labelledby="status-heading">
+            <h2 id="status-heading">Service status</h2>
+            <dl>
+              <dt>Tick</dt>
+              <dd id="status-tick">—</dd>
+              <dt>State</dt>
+              <dd id="vehicle-state">No snapshots recorded</dd>
+              <dt>Location</dt>
+              <dd id="vehicle-location">—</dd>
+              <dt>Load / capacity</dt>
+              <dd id="vehicle-load">—</dd>
+            </dl>
+            <h3>Passenger totals</h3>
+            <dl class="passenger-counts">
+              <div>
+                <dt>Waiting</dt>
+                <dd id="passenger-waiting">—</dd>
+              </div>
+              <div>
+                <dt>Onboard</dt>
+                <dd id="passenger-onboard">—</dd>
+              </div>
+              <div>
+                <dt>Arrived</dt>
+                <dd id="passenger-arrived">—</dd>
+              </div>
+              <div>
+                <dt>Unserved</dt>
+                <dd id="passenger-unserved">—</dd>
+              </div>
+            </dl>
+          </aside>
         </div>
-        <svg
-          id="network"
-          viewBox="0 0 800 480"
-          role="img"
-          aria-labelledby="network-title network-description"
-        >
-          <title id="network-title">
-            Directed transit network and recorded Rail vehicle
-          </title>
-          <desc id="network-description">
-            Nodes follow stored order clockwise from the top. Arrows show edge
-            direction.
-          </desc>
-          <defs>
-            <marker
-              id="Road-arrow"
-              viewBox="0 0 10 10"
-              refX="22"
-              refY="5"
-              markerWidth="10"
-              markerHeight="10"
-              markerUnits="userSpaceOnUse"
-              orient="auto"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 Z" fill="#64748b" />
-            </marker>
-            <marker
-              id="Rail-arrow"
-              viewBox="0 0 10 10"
-              refX="22"
-              refY="5"
-              markerWidth="10"
-              markerHeight="10"
-              markerUnits="userSpaceOnUse"
-              orient="auto"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 Z" fill="#087f8c" />
-            </marker>
-          </defs>
-          <g id="edges"></g>
-          <g id="nodes"></g>
-          <circle id="vehicle" r="10" visibility="hidden">
-            <title>Rail vehicle</title>
-          </circle>
-        </svg>
         <div class="selection">
           <div>
             <label for="snapshot">Snapshot</label
@@ -408,6 +488,23 @@
             "aria-valuetext",
             `Snapshot ${index + 1}, tick ${frame.tick}`,
           );
+          document.getElementById("status-tick").textContent = frame.tick;
+          document.getElementById("vehicle-state").textContent =
+            position.kind === "AtStop" ? "At stop" : position.kind;
+          document.getElementById("vehicle-location").textContent =
+            position.kind === "Traveling"
+              ? `Edge ${position.edge} · ${position.from} → ${position.to}`
+              : `Stop ${position.stop_index} · Node ${position.node}`;
+          document.getElementById("vehicle-load").textContent =
+            `${frame.occupancy} / ${frame.capacity}`;
+          // Sum recorded counts only at tick boundaries, never interpolate them.
+          for (const field of ["waiting", "onboard", "arrived", "unserved"]) {
+            document.getElementById(`passenger-${field}`).textContent =
+              frame.passengers.reduce(
+                (total, passenger) => total + BigInt(passenger[field]),
+                0n,
+              ).toString();
+          }
         }
       }
 
