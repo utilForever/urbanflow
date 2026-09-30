@@ -1,0 +1,300 @@
+{
+  "nodes": ["8", "3", "21"],
+  "edges": [
+    { "id": "0", "from": "8", "to": "21", "kind": "Road" },
+    { "id": "1", "from": "8", "to": "3", "kind": "Rail" },
+    { "id": "2", "from": "3", "to": "21", "kind": "Rail" }
+  ],
+  "trace": {
+    "completed": true,
+    "snapshots": [
+      {
+        "tick": "0",
+        "position": {
+          "kind": "AtStop",
+          "stop_index": "0",
+          "node": "8",
+          "dwell_ticks_remaining": "1"
+        },
+        "occupancy": 0,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 2,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 3,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          }
+        ]
+      },
+      {
+        "tick": "1",
+        "position": {
+          "kind": "Traveling",
+          "edge_index": "0",
+          "edge": "1",
+          "from": "8",
+          "to": "3",
+          "travel_ticks_elapsed": "0",
+          "travel_ticks_total": "2"
+        },
+        "occupancy": 2,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 2,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 1,
+            "onboard": 2,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          }
+        ]
+      },
+      {
+        "tick": "2",
+        "position": {
+          "kind": "Traveling",
+          "edge_index": "0",
+          "edge": "1",
+          "from": "8",
+          "to": "3",
+          "travel_ticks_elapsed": "1",
+          "travel_ticks_total": "2"
+        },
+        "occupancy": 2,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 2,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 1,
+            "onboard": 2,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          }
+        ]
+      },
+      {
+        "tick": "3",
+        "position": {
+          "kind": "AtStop",
+          "stop_index": "1",
+          "node": "3",
+          "dwell_ticks_remaining": "1"
+        },
+        "occupancy": 2,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 0,
+            "onboard": 2,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 2,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          }
+        ]
+      },
+      {
+        "tick": "4",
+        "position": {
+          "kind": "Traveling",
+          "edge_index": "1",
+          "edge": "2",
+          "from": "3",
+          "to": "21",
+          "travel_ticks_elapsed": "0",
+          "travel_ticks_total": "2"
+        },
+        "occupancy": 2,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 0,
+            "onboard": 2,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 2,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          }
+        ]
+      },
+      {
+        "tick": "5",
+        "position": {
+          "kind": "Traveling",
+          "edge_index": "1",
+          "edge": "2",
+          "from": "3",
+          "to": "21",
+          "travel_ticks_elapsed": "1",
+          "travel_ticks_total": "2"
+        },
+        "occupancy": 2,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 0,
+            "onboard": 2,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 2,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          }
+        ]
+      },
+      {
+        "tick": "6",
+        "position": { "kind": "Complete", "stop_index": "2", "node": "21" },
+        "occupancy": 0,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 0,
+            "onboard": 0,
+            "arrived": 2,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 0,
+            "onboard": 0,
+            "arrived": 2,
+            "unserved": 1
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 0,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 1
+          }
+        ]
+      }
+    ]
+  }
+}
