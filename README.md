@@ -112,7 +112,9 @@ cargo run --example rail_viewer -- rail-viewer.html
 
 Open `rail-viewer.html` directly in a modern browser. The file embeds the demo network, recorded trace, CSS, and JavaScript, so it works offline without a server or frontend installation. The optional output path defaults to `rail-viewer.html`; an existing file at that path is overwritten.
 
-The SVG places nodes clockwise in stored order and distinguishes directed Road and Rail edges. Use the Snapshot slider (or arrow keys while focused) to inspect the vehicle at each recorded tick. The badge identifies complete versus partial recordings. Automatic playback and passenger metrics are planned separately.
+The SVG places nodes clockwise in stored order and distinguishes directed Road and Rail edges. Use Play and Pause to watch the recorded service, Reset to return to the first snapshot and pause, and Speed to select 0.25×, 0.5×, 1×, 2×, or 4×. Playback starts paused; 1× displays one recorded tick per second and is a viewing pace, not a simulation time unit. Changing speed preserves playback progress.
+
+Use the Snapshot slider (or arrow keys while focused) to select a recorded tick and pause playback. During playback, the marker moves smoothly along the Rail edge while the tick label and slider identify the latest reached snapshot. Playback stops at the last recorded snapshot, including for partial recordings; use Reset to watch again. The badge identifies complete versus partial recordings. Interpolation changes only the displayed marker, never recorded simulation state. Passenger metrics are planned separately.
 
 To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`. Layout and display stay in the example; the viewer makes no simulation decisions.
 
@@ -132,6 +134,8 @@ Read [AGENTS.md](AGENTS.md) for repository rules and validation commands, and [A
 ```bash
 cargo doc --no-deps --open
 ```
+
+For the viewer's browser interaction tests, run `python3 -m http.server 8121 --bind 127.0.0.1` from the repository root and open [the playback test page](http://127.0.0.1:8121/tests/rail_viewer_playback.html). It reports pass/fail results using the real viewer template, DOM controls, and SVG geometry with a controlled animation clock. This separate browser check requires no frontend dependencies and is not run by `cargo test`.
 
 ## License
 

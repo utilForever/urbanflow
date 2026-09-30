@@ -134,7 +134,31 @@
         margin: 12px 0 0;
         accent-color: #087f8c;
       }
-      input:focus-visible {
+      .selection .playback {
+        justify-content: flex-start;
+        align-items: center;
+        margin-top: 16px;
+        gap: 12px;
+      }
+      button,
+      select {
+        font: inherit;
+        color: inherit;
+        background: white;
+        border: 1px solid #8094a5;
+        border-radius: 6px;
+        padding: 8px 12px;
+      }
+      button:not(:disabled) {
+        cursor: pointer;
+      }
+      button:disabled,
+      select:disabled {
+        opacity: 0.5;
+      }
+      input:focus-visible,
+      button:focus-visible,
+      select:focus-visible {
         outline: 2px solid #087f8c;
         outline-offset: 4px;
       }
@@ -153,8 +177,9 @@
         <span id="trace-status"></span>
       </header>
       <p id="snapshot-help">
-        Select a recorded snapshot to inspect the vehicle's position along its
-        route.
+        Play the recorded service or select a snapshot to inspect it. Selecting
+        a snapshot pauses playback. At 1× speed, one recorded tick takes one
+        second.
       </p>
       <section class="card" aria-label="Recorded Rail network">
         <div class="legend" aria-label="Legend">
@@ -220,6 +245,19 @@
             step="1"
             aria-describedby="snapshot-help"
           />
+          <div class="playback" role="group" aria-label="Playback controls">
+            <button id="play" type="button">Play</button>
+            <button id="pause" type="button" disabled>Pause</button>
+            <button id="reset" type="button">Reset</button>
+            <label for="speed">Speed</label>
+            <select id="speed">
+              <option value="0.25">0.25×</option>
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </div>
         </div>
       </section>
       <noscript
@@ -229,7 +267,9 @@
       >
       <footer>
         <p>
-          Positions come from recorded simulation state. Node layout is
+          Playback stops at the last recorded snapshot. Reset returns to the
+          first snapshot and pauses. Movement between ticks is interpolated for
+          viewing; recorded simulation state is unchanged. Node layout is
           schematic.
         </p>
       </footer>
@@ -248,6 +288,16 @@
       const marker = document.getElementById("vehicle");
       const selector = document.getElementById("snapshot");
       const tick = document.getElementById("tick");
+      const play = document.getElementById("play");
+      const pause = document.getElementById("pause");
+      const reset = document.getElementById("reset");
+      const speed = document.getElementById("speed");
+      // Core traces contain one snapshot per tick. Keep the cursor relative to
+      // the recording so even u64 tick labels never pass through Number.
+      let cursor = 0;
+      let rate = 1;
+      let previousTime = 0;
+      let animation = null;
 
       function svgElement(tag, attributes, parent) {
         const element = document.createElementNS(
@@ -306,8 +356,21 @@
         });
       }
 
-      function renderSnapshot(index) {
+      function updateControls() {
+        play.disabled =
+          frames.length < 2 ||
+          cursor >= frames.length - 1 ||
+          animation !== null;
+        pause.disabled = animation === null;
+        reset.disabled = frames.length === 0;
+        speed.disabled = frames.length < 2;
+      }
+
+      function renderSnapshot() {
+        const index = Math.floor(cursor);
         const frame = frames[index];
+        selector.value = index;
+        updateControls();
         if (!frame) {
           marker.setAttribute("visibility", "hidden");
           tick.textContent = "No snapshots recorded";
@@ -317,9 +380,19 @@
         let point;
         if (position.kind === "Traveling") {
           const path = paths.get(position.edge);
-          const progress =
+          const start =
             Number(position.travel_ticks_elapsed) /
             Number(position.travel_ticks_total);
+          const next = frames[index + 1]?.position;
+          // Arrival is the endpoint of this same edge, not a straight line
+          // between screen coordinates. AtStop frames stay at their node.
+          const end = !next
+            ? start
+            : next.kind === "Traveling"
+              ? Number(next.travel_ticks_elapsed) /
+                Number(next.travel_ticks_total)
+              : 1;
+          const progress = start + (end - start) * (cursor - index);
           point = path.getPointAtLength(path.getTotalLength() * progress);
         } else {
           point = nodes.get(position.node);
@@ -327,11 +400,37 @@
         marker.setAttribute("cx", point.x);
         marker.setAttribute("cy", point.y);
         marker.setAttribute("visibility", "visible");
-        tick.textContent = `Tick ${frame.tick} · ${index + 1} / ${frames.length}`;
-        selector.setAttribute(
-          "aria-valuetext",
-          `Snapshot ${index + 1}, tick ${frame.tick}`,
+        const label = `Tick ${frame.tick} · ${index + 1} / ${frames.length}`;
+        // Announce only recorded tick changes, not every animation frame.
+        if (tick.textContent !== label) {
+          tick.textContent = label;
+          selector.setAttribute(
+            "aria-valuetext",
+            `Snapshot ${index + 1}, tick ${frame.tick}`,
+          );
+        }
+      }
+
+      function stopPlayback() {
+        cancelAnimationFrame(animation);
+        animation = null;
+        updateControls();
+      }
+
+      function advancePlayback(now) {
+        cursor = Math.min(
+          frames.length - 1,
+          cursor + ((now - previousTime) * rate) / 1000,
         );
+        previousTime = now;
+        renderSnapshot();
+        if (cursor >= frames.length - 1) stopPlayback();
+      }
+
+      function animate() {
+        // Use the controls' clock; the rAF timestamp can predate a control event.
+        advancePlayback(performance.now());
+        if (animation !== null) animation = requestAnimationFrame(animate);
       }
 
       document.getElementById("trace-status").textContent = data.trace.completed
@@ -339,10 +438,36 @@
         : "Partial trace";
       selector.max = Math.max(0, frames.length - 1);
       selector.disabled = frames.length < 2;
-      selector.addEventListener("input", () =>
-        renderSnapshot(Number(selector.value)),
-      );
-      renderSnapshot(0);
+      selector.addEventListener("input", () => {
+        stopPlayback();
+        cursor = Number(selector.value);
+        renderSnapshot();
+      });
+      play.addEventListener("click", () => {
+        if (
+          animation !== null ||
+          frames.length < 2 ||
+          cursor >= frames.length - 1
+        )
+          return;
+        previousTime = performance.now();
+        animation = requestAnimationFrame(animate);
+        updateControls();
+      });
+      pause.addEventListener("click", () => {
+        if (animation !== null) advancePlayback(performance.now());
+        stopPlayback();
+      });
+      reset.addEventListener("click", () => {
+        stopPlayback();
+        cursor = 0;
+        renderSnapshot();
+      });
+      speed.addEventListener("change", () => {
+        if (animation !== null) advancePlayback(performance.now());
+        rate = Number(speed.value);
+      });
+      renderSnapshot();
     </script>
   </body>
 </html>
