@@ -1,8 +1,10 @@
 //! Owned operational results for one completed Rail service.
 //!
 //! [`PassengerOutcomes::from_trace`] summarizes final passenger counts with
-//! completion and terminal passenger validation. Other result types are data
-//! contracts only; full trace validation and analysis are not yet implemented.
+//! completion and terminal passenger validation. [`PassengerTimes::from_trace`]
+//! derives passenger-ticks and arrived-passenger means over recorded intervals.
+//! Other result types remain data contracts; full trace validation and the
+//! remaining calculations are not yet implemented.
 //! Public fields permit caller construction without validation.
 //! Unlike [`crate::metrics::Metrics`], these summaries describe a recorded
 //! service, not aggregate network allocation, construction cost, or reward.
@@ -35,10 +37,21 @@ pub enum AnalysisError {
     IncompleteTrace,
     /// A final passenger record still has waiting or onboard passengers.
     UnfinishedPassengers { demand_index: usize },
-    /// A final record's arrived and unserved counts do not sum to its demand.
+    /// A record's lifecycle counts do not sum to its demand amount.
     InvalidPassengerCounts { demand_index: usize },
     /// An aggregate passenger count would exceed `u64::MAX`.
     CountOverflow,
+    /// This snapshot's tick is not strictly greater than the previous tick.
+    InvalidTickOrder { snapshot_index: usize },
+    /// This snapshot changes the number, identity, or order of demand records.
+    InconsistentDemands { snapshot_index: usize },
+    /// Passenger counts cannot follow the preceding recorded lifecycle state.
+    InvalidPassengerTransition {
+        snapshot_index: usize,
+        demand_index: usize,
+    },
+    /// A passenger-tick product, total, or combined journey exceeds `u64::MAX`.
+    TimeOverflow,
 }
 
 impl fmt::Display for AnalysisError {
@@ -55,6 +68,22 @@ impl fmt::Display for AnalysisError {
                 "passenger counts do not match demand record {demand_index}"
             ),
             Self::CountOverflow => formatter.write_str("passenger count overflow"),
+            Self::InvalidTickOrder { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} does not advance the recorded tick"
+            ),
+            Self::InconsistentDemands { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} has inconsistent demand records"
+            ),
+            Self::InvalidPassengerTransition {
+                snapshot_index,
+                demand_index,
+            } => write!(
+                formatter,
+                "snapshot {snapshot_index} has an invalid lifecycle transition for demand record {demand_index}"
+            ),
+            Self::TimeOverflow => formatter.write_str("passenger time overflow"),
         }
     }
 }
@@ -179,6 +208,150 @@ pub struct PassengerTimes {
     pub mean_onboard_ticks: Option<f64>,
     /// Sum of the two `arrived_*` totals divided by `arrived`, in ticks.
     pub mean_journey_ticks: Option<f64>,
+}
+
+impl PassengerTimes {
+    /// Derives passenger time from a completed trace without modifying it.
+    ///
+    /// Each interval uses its starting counts times the positive tick delta,
+    /// including waiting before the first recorded boarding and onboard dwell.
+    /// The terminal snapshot adds no time. A recording that starts during or
+    /// after service measures only its recorded intervals, never missing history.
+    /// A completion-only recording therefore has zero totals.
+    ///
+    /// Within each demand, arrivals are attributed to earlier boardings first.
+    /// At each snapshot, passengers who will arrive are the final arrived count
+    /// minus those already arrived. They are onboard up to the recorded onboard
+    /// count, with the remainder still waiting. This counts separate boarding
+    /// batches, including repeated stops, without individual passenger timelines.
+    /// Duplicate demands remain separate. All means divide by the final arrived
+    /// count, including arrivals before recording, or are `None` if it is zero.
+    ///
+    /// # Errors
+    ///
+    /// Applies [`PassengerOutcomes::from_trace`] validation first. Then requires
+    /// identical ordered demands and conserved counts in every snapshot, returning
+    /// [`AnalysisError::InconsistentDemands`] or [`AnalysisError::InvalidPassengerCounts`].
+    /// Intervals require strictly increasing ticks ([`AnalysisError::InvalidTickOrder`])
+    /// and forward lifecycle transitions ([`AnalysisError::InvalidPassengerTransition`]):
+    /// waiting cannot increase, arrived and unserved cannot decrease, arrivals
+    /// must come from previously onboard passengers, and new unserved counts
+    /// may appear only at completion. Error indices are zero-based; transition
+    /// and tick errors identify the later snapshot.
+    ///
+    /// Checked products, totals, and the combined arrived journey total return
+    /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
+    /// Tick contiguity, occupancy, capacity, and route-position consistency are
+    /// outside this operation; a gap uses the starting counts for its duration.
+    pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
+        let outcomes = PassengerOutcomes::from_trace(trace)?;
+        let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
+
+        for (snapshot_index, snapshot) in trace.snapshots.iter().enumerate() {
+            if snapshot.passengers.len() != final_snapshot.passengers.len() {
+                return Err(AnalysisError::InconsistentDemands { snapshot_index });
+            }
+
+            for (demand_index, (record, final_record)) in snapshot
+                .passengers
+                .iter()
+                .zip(&final_snapshot.passengers)
+                .enumerate()
+            {
+                if record.demand != final_record.demand {
+                    return Err(AnalysisError::InconsistentDemands { snapshot_index });
+                }
+
+                if record
+                    .waiting
+                    .checked_add(record.onboard)
+                    .and_then(|count| count.checked_add(record.arrived))
+                    .and_then(|count| count.checked_add(record.unserved))
+                    != Some(record.demand.amount)
+                {
+                    return Err(AnalysisError::InvalidPassengerCounts { demand_index });
+                }
+            }
+        }
+
+        let mut totals = [0u64; 4];
+
+        for (index, pair) in trace.snapshots.windows(2).enumerate() {
+            let current = &pair[0];
+            let next = &pair[1];
+            let snapshot_index = index + 1;
+            let ticks = next
+                .tick
+                .checked_sub(current.tick)
+                .filter(|&ticks| ticks > 0)
+                .ok_or(AnalysisError::InvalidTickOrder { snapshot_index })?;
+
+            for (demand_index, record) in current.passengers.iter().enumerate() {
+                let next_record = &next.passengers[demand_index];
+                let invalid_transition = AnalysisError::InvalidPassengerTransition {
+                    snapshot_index,
+                    demand_index,
+                };
+                let arrivals = next_record
+                    .arrived
+                    .checked_sub(record.arrived)
+                    .ok_or(invalid_transition)?;
+
+                if next_record.waiting > record.waiting
+                    || arrivals > record.onboard
+                    || next_record.unserved < record.unserved
+                    || (next_record.unserved != record.unserved
+                        && snapshot_index != trace.snapshots.len() - 1)
+                {
+                    return Err(invalid_transition);
+                }
+
+                let future_arrivals = final_snapshot.passengers[demand_index]
+                    .arrived
+                    .checked_sub(record.arrived)
+                    .ok_or(invalid_transition)?;
+                let arrived_onboard = record.onboard.min(future_arrivals);
+                let arrived_waiting = future_arrivals - arrived_onboard;
+
+                if arrived_waiting > record.waiting {
+                    return Err(invalid_transition);
+                }
+
+                for (total, count) in totals.iter_mut().zip([
+                    record.waiting,
+                    record.onboard,
+                    arrived_waiting,
+                    arrived_onboard,
+                ]) {
+                    *total = u64::from(count)
+                        .checked_mul(ticks)
+                        .and_then(|time| total.checked_add(time))
+                        .ok_or(AnalysisError::TimeOverflow)?;
+                }
+            }
+        }
+
+        let [
+            waiting_passenger_ticks,
+            onboard_passenger_ticks,
+            arrived_waiting_passenger_ticks,
+            arrived_onboard_passenger_ticks,
+        ] = totals;
+        let journey = arrived_waiting_passenger_ticks
+            .checked_add(arrived_onboard_passenger_ticks)
+            .ok_or(AnalysisError::TimeOverflow)?;
+        let mean = |total| (outcomes.arrived != 0).then(|| total as f64 / outcomes.arrived as f64);
+
+        Ok(Self {
+            waiting_passenger_ticks,
+            onboard_passenger_ticks,
+            arrived_waiting_passenger_ticks,
+            arrived_onboard_passenger_ticks,
+            mean_waiting_ticks: mean(arrived_waiting_passenger_ticks),
+            mean_onboard_ticks: mean(arrived_onboard_passenger_ticks),
+            mean_journey_ticks: mean(journey),
+        })
+    }
 }
 
 /// Occupancy of one vehicle across active intervals, including travel and dwell.
