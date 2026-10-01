@@ -30,6 +30,7 @@
 - Repeatable reinforcement learning episodes with valid actions and owned observations.
 - One fixed-route Rail vehicle with timed movement, passenger boarding and alighting, and owned snapshots and bounded traces.
 - Checked passenger outcome totals, served share, and waiting, onboard, and journey time metrics from completed Rail traces.
+- Maximum and time-weighted mean vehicle occupancy and load factors over recorded active Rail service.
 - A self-contained HTML example for inspecting recorded Rail positions in a browser.
 
 Trams, demand-responsive transit (DRT), broader analysis tools, application integrations, and large-scale simulation are planned. See [Architecture](ARCHITECTURE.md) for current capabilities and future direction.
@@ -112,7 +113,7 @@ A trace records the initial snapshot and each subsequent tick, up to the supplie
 Use `PassengerOutcomes::from_trace(&trace)` to sum requested, arrived, and unserved passengers from the final snapshot of a completed Rail trace, including duplicate demands. Totals use checked `u64` arithmetic, and `served_share` is `None` when no passengers were requested. For the Rail trace above:
 
 ```rust
-use urbanflow::analysis::{PassengerOutcomes, PassengerTimes};
+use urbanflow::analysis::{PassengerOutcomes, PassengerTimes, VehicleOccupancy};
 
 let outcomes = PassengerOutcomes::from_trace(&trace).unwrap();
 assert_eq!((outcomes.requested, outcomes.arrived, outcomes.unserved), (10, 6, 4));
@@ -124,11 +125,20 @@ assert_eq!(times.onboard_passenger_ticks, 6);
 assert_eq!(times.mean_waiting_ticks, Some(1.0));
 assert_eq!(times.mean_onboard_ticks, Some(1.0));
 assert_eq!(times.mean_journey_ticks, Some(2.0));
+
+let occupancy = VehicleOccupancy::from_trace(&trace).unwrap();
+assert_eq!(occupancy.max_occupancy, 6);
+assert_eq!(occupancy.occupied_passenger_ticks, 6);
+assert_eq!(occupancy.mean_occupancy, Some(3.0));
+assert_eq!(occupancy.max_load_factor, Some(1.0));
+assert_eq!(occupancy.mean_load_factor, Some(0.5));
 ```
 
-Both operations reject empty or incomplete traces, remaining waiting or onboard passengers, and final demand counts that do not conserve passengers. They also accept a recording containing only the completed snapshot. `AnalysisError` implements `Display` and `std::error::Error`, so callers returning `Result<_, Box<dyn std::error::Error>>` can propagate failures with `?`.
+All three operations reject empty or incomplete traces, remaining waiting or onboard passengers, and final demand counts that do not conserve passengers. They also accept a recording containing only the completed snapshot. `AnalysisError` implements `Display` and `std::error::Error`, so callers returning `Result<_, Box<dyn std::error::Error>>` can propagate failures with `?`.
 
 `PassengerTimes::from_trace` accumulates checked integer passenger-ticks using each interval's starting counts, including onboard dwell. Its means include only passengers who arrived, attributing arrivals to earlier boardings within each demand; unserved passengers' waiting and onboard time contribute only to the overall totals. Means are `None` when nobody arrived. Only recorded intervals contribute time, so a completion-only recording has zero totals and zero means when passengers arrived. It checks increasing ticks, stable ordered demands, passenger conservation, and forward lifecycle transitions before returning a result. Full trace consistency validation, including tick contiguity, occupancy, and route positions, remains separate work.
+
+`VehicleOccupancy::from_trace` weights each interval's starting occupancy by its tick duration, including travel and dwell. It reports the configured capacity, maximum occupancy, occupied passenger-ticks, mean occupancy, and maximum and mean load factors. Completed positions add no active time. A completion-only recording has zero integer measurements and `None` means and load factors; an active service with no passengers has `Some(0.0)` derived values. It checks positive constant capacity, occupancy within capacity, increasing ticks, and passenger-tick overflow. It reads recorded occupancy without cross-checking it against passenger records or reconstructing unrecorded history.
 
 Other result types remain data contracts; the remaining calculations and viewer integration are planned separately. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
 

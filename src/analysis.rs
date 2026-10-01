@@ -3,6 +3,7 @@
 //! [`PassengerOutcomes::from_trace`] summarizes final passenger counts with
 //! completion and terminal passenger validation. [`PassengerTimes::from_trace`]
 //! derives passenger-ticks and arrived-passenger means over recorded intervals.
+//! [`VehicleOccupancy::from_trace`] derives capacity use over active intervals.
 //! Other result types remain data contracts; full trace validation and the
 //! remaining calculations are not yet implemented.
 //! Public fields permit caller construction without validation.
@@ -27,8 +28,8 @@ use std::fmt;
 /// Errors while deriving operational results from an owned Rail trace.
 ///
 /// Implements [`std::error::Error`] for propagation with `?` into
-/// `Box<dyn std::error::Error>`. Display messages include the demand index when
-/// one is available.
+/// `Box<dyn std::error::Error>`. Display messages include the demand or snapshot
+/// index when one is available.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AnalysisError {
     /// There is no snapshot to summarize.
@@ -52,6 +53,10 @@ pub enum AnalysisError {
     },
     /// A passenger-tick product, total, or combined journey exceeds `u64::MAX`.
     TimeOverflow,
+    /// Capacity is zero or differs from the first snapshot's capacity.
+    InvalidCapacity { snapshot_index: usize },
+    /// Recorded occupancy exceeds the configured capacity.
+    InvalidOccupancy { snapshot_index: usize },
 }
 
 impl fmt::Display for AnalysisError {
@@ -84,6 +89,14 @@ impl fmt::Display for AnalysisError {
                 "snapshot {snapshot_index} has an invalid lifecycle transition for demand record {demand_index}"
             ),
             Self::TimeOverflow => formatter.write_str("passenger time overflow"),
+            Self::InvalidCapacity { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} has zero or inconsistent vehicle capacity"
+            ),
+            Self::InvalidOccupancy { snapshot_index } => write!(
+                formatter,
+                "snapshot {snapshot_index} has occupancy exceeding vehicle capacity"
+            ),
         }
     }
 }
@@ -357,7 +370,7 @@ impl PassengerTimes {
 /// Occupancy of one vehicle across active intervals, including travel and dwell.
 ///
 /// Interval weighting follows the module convention. The denominator for mean
-/// occupancy is [`RouteTiming::elapsed_ticks`]. For zero active ticks, both
+/// occupancy is the summed active interval duration. For zero active ticks, both
 /// integer measurements are zero and all three derived values are `None`.
 /// With active ticks but no passengers, all derived values are `Some(0.0)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -368,12 +381,101 @@ pub struct VehicleOccupancy {
     pub max_occupancy: u32,
     /// Sum of occupancy times interval duration, in passenger-ticks.
     pub occupied_passenger_ticks: u64,
-    /// `occupied_passenger_ticks / elapsed_ticks`, in passengers.
+    /// `occupied_passenger_ticks / active_ticks`, in passengers.
     pub mean_occupancy: Option<f64>,
     /// `max_occupancy / capacity`, in `[0, 1]`; `None` without active intervals.
     pub max_load_factor: Option<f64>,
     /// `mean_occupancy / capacity`, in `[0, 1]`; `None` without active intervals.
     pub mean_load_factor: Option<f64>,
+}
+
+impl VehicleOccupancy {
+    /// Derives vehicle capacity use from a completed trace without modifying it.
+    ///
+    /// Each interval uses its starting occupancy times the positive tick delta.
+    /// Active intervals start at [`RailPosition::AtStop`] or
+    /// [`RailPosition::Traveling`], including initial and onboard dwell. Intervals
+    /// starting at [`RailPosition::Complete`] and the terminal snapshot contribute
+    /// neither time nor maximum occupancy. Only recorded intervals contribute;
+    /// recording during service does not reconstruct earlier occupancy.
+    ///
+    /// Means divide by the summed active duration, and load factors divide by
+    /// the fixed capacity. With no active intervals, both integer measurements
+    /// are zero and all three derived values are `None`. An active but empty
+    /// vehicle instead has zero measurements and `Some(0.0)` derived values.
+    /// Floating-point rounding cannot raise the mean above recorded maximum
+    /// occupancy or raise a load factor above one.
+    ///
+    /// # Errors
+    ///
+    /// Applies [`PassengerOutcomes::from_trace`] validation first. Then checks
+    /// every snapshot in order for positive capacity matching the first snapshot
+    /// ([`AnalysisError::InvalidCapacity`]) and occupancy within capacity
+    /// ([`AnalysisError::InvalidOccupancy`]). Intervals require strictly increasing
+    /// ticks ([`AnalysisError::InvalidTickOrder`], identifying the later snapshot).
+    /// Indices are zero-based. Checked passenger-tick products and totals return
+    /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
+    ///
+    /// Tick contiguity, occupancy agreement with passenger records, lifecycle
+    /// transitions, and route-position consistency are outside this operation.
+    /// Gaps use the starting occupancy for their whole duration.
+    pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
+        PassengerOutcomes::from_trace(trace)?;
+
+        let capacity = trace.snapshots[0].capacity;
+
+        for (snapshot_index, snapshot) in trace.snapshots.iter().enumerate() {
+            if snapshot.capacity == 0 || snapshot.capacity != capacity {
+                return Err(AnalysisError::InvalidCapacity { snapshot_index });
+            }
+
+            if snapshot.occupancy > capacity {
+                return Err(AnalysisError::InvalidOccupancy { snapshot_index });
+            }
+        }
+
+        let mut active_ticks = 0u64;
+        let mut max_occupancy = 0;
+        let mut occupied_passenger_ticks = 0u64;
+
+        for (index, pair) in trace.snapshots.windows(2).enumerate() {
+            let current = &pair[0];
+            let ticks = pair[1]
+                .tick
+                .checked_sub(current.tick)
+                .filter(|&ticks| ticks > 0)
+                .ok_or(AnalysisError::InvalidTickOrder {
+                    snapshot_index: index + 1,
+                })?;
+
+            if matches!(current.position, RailPosition::Complete { .. }) {
+                continue;
+            }
+
+            active_ticks = active_ticks
+                .checked_add(ticks)
+                .ok_or(AnalysisError::TimeOverflow)?;
+            max_occupancy = max_occupancy.max(current.occupancy);
+            occupied_passenger_ticks = u64::from(current.occupancy)
+                .checked_mul(ticks)
+                .and_then(|time| occupied_passenger_ticks.checked_add(time))
+                .ok_or(AnalysisError::TimeOverflow)?;
+        }
+
+        let mean_occupancy = (active_ticks != 0).then(|| {
+            (occupied_passenger_ticks as f64 / active_ticks as f64).min(f64::from(max_occupancy))
+        });
+
+        Ok(Self {
+            capacity,
+            max_occupancy,
+            occupied_passenger_ticks,
+            mean_occupancy,
+            max_load_factor: (active_ticks != 0)
+                .then(|| f64::from(max_occupancy) / f64::from(capacity)),
+            mean_load_factor: mean_occupancy.map(|mean| mean / f64::from(capacity)),
+        })
+    }
 }
 
 /// Passenger activity at one route stop visit, not aggregated by node.

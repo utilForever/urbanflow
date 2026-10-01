@@ -46,6 +46,8 @@ fn analysis_errors_support_standard_error_propagation_and_diagnostics() {
             "9",
         ),
         (AnalysisError::TimeOverflow, "overflow"),
+        (AnalysisError::InvalidCapacity { snapshot_index: 2 }, "2"),
+        (AnalysisError::InvalidOccupancy { snapshot_index: 3 }, "3"),
     ] {
         assert!(error.to_string().contains(detail));
     }
@@ -584,6 +586,243 @@ fn passenger_times_check_products_totals_and_combined_journey_overflow() {
             .unwrap()
             .waiting_passenger_ticks,
         u64::MAX
+    );
+}
+
+#[test]
+fn vehicle_occupancy_weights_travel_and_dwell_without_mutating_the_trace() {
+    let mut network = Network::new();
+    let outbound = network
+        .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+    let inbound = network
+        .add_edge(NodeId(3), NodeId(8), EdgeKind::Rail)
+        .unwrap();
+    let route = RailRoute::new(&network, vec![outbound, inbound]).unwrap();
+
+    let mut vehicle = RailVehicle::new(route, 6, 2, 2).unwrap();
+    let mut trace = vehicle
+        .record_trace(
+            &mut SimulationClock::default(),
+            &mut RailPassengers::new(&[
+                Demand::new(NodeId(8), NodeId(3), 4),
+                Demand::new(NodeId(8), NodeId(3), 4),
+                Demand::new(NodeId(3), NodeId(8), 2),
+            ]),
+            8,
+        )
+        .unwrap();
+
+    let expected = VehicleOccupancy {
+        capacity: 6,
+        max_occupancy: 6,
+        // Six ride [1, 4), then two ride [4, 8), including dwell.
+        occupied_passenger_ticks: 26,
+        mean_occupancy: Some(3.25),
+        max_load_factor: Some(1.0),
+        mean_load_factor: Some(3.25 / 6.0),
+    };
+    let before = trace.clone();
+
+    assert_eq!(VehicleOccupancy::from_trace(&trace), Ok(expected));
+    assert_eq!(trace, before);
+
+    // Uneven intervals retain the same piecewise-constant occupancy.
+    trace
+        .snapshots
+        .retain(|frame| [0, 1, 4, 8].contains(&frame.tick));
+
+    for frame in &mut trace.snapshots {
+        frame.tick += 100;
+    }
+    assert_eq!(VehicleOccupancy::from_trace(&trace), Ok(expected));
+}
+
+#[test]
+fn vehicle_occupancy_distinguishes_empty_service_from_no_active_intervals() {
+    for demands in [vec![], vec![Demand::new(NodeId(3), NodeId(8), 2)]] {
+        let trace = completed_trace(&demands, 6);
+
+        assert_eq!(
+            VehicleOccupancy::from_trace(&trace),
+            Ok(VehicleOccupancy {
+                capacity: 6,
+                max_occupancy: 0,
+                occupied_passenger_ticks: 0,
+                mean_occupancy: Some(0.0),
+                max_load_factor: Some(0.0),
+                mean_load_factor: Some(0.0),
+            })
+        );
+    }
+
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    trace.snapshots.remove(0);
+
+    assert_eq!(
+        VehicleOccupancy::from_trace(&trace),
+        Ok(VehicleOccupancy {
+            capacity: 6,
+            max_occupancy: 2,
+            occupied_passenger_ticks: 2,
+            mean_occupancy: Some(2.0),
+            max_load_factor: Some(2.0 / 6.0),
+            mean_load_factor: Some(2.0 / 6.0),
+        })
+    );
+
+    trace.snapshots.remove(0);
+
+    let expected = VehicleOccupancy {
+        capacity: 6,
+        max_occupancy: 0,
+        occupied_passenger_ticks: 0,
+        mean_occupancy: None,
+        max_load_factor: None,
+        mean_load_factor: None,
+    };
+
+    assert_eq!(VehicleOccupancy::from_trace(&trace), Ok(expected));
+
+    let mut later = trace.snapshots[0].clone();
+    later.tick += 10;
+
+    // Even a caller-supplied load after completion cannot affect the maximum.
+    trace.snapshots[0].occupancy = 6;
+    trace.snapshots.push(later);
+
+    assert_eq!(VehicleOccupancy::from_trace(&trace), Ok(expected));
+}
+
+#[test]
+fn vehicle_occupancy_rejects_invalid_recordings_without_mutation() {
+    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    let mut cases = vec![(
+        RailTrace {
+            snapshots: vec![],
+            completed: true,
+        },
+        AnalysisError::EmptyTrace,
+    )];
+
+    let mut incomplete = trace.clone();
+    incomplete.completed = false;
+
+    cases.push((incomplete, AnalysisError::IncompleteTrace));
+
+    let mut incomplete = trace.clone();
+    incomplete.snapshots.pop();
+
+    cases.push((incomplete, AnalysisError::IncompleteTrace));
+
+    let mut unfinished = trace.clone();
+    unfinished.snapshots[2].passengers[0].waiting = 1;
+
+    cases.push((
+        unfinished,
+        AnalysisError::UnfinishedPassengers { demand_index: 0 },
+    ));
+
+    for tick in [0, 2, 3] {
+        let mut invalid = trace.clone();
+        invalid.snapshots[1].tick = tick;
+
+        cases.push((
+            invalid,
+            AnalysisError::InvalidTickOrder {
+                snapshot_index: if tick == 0 { 1 } else { 2 },
+            },
+        ));
+    }
+
+    for snapshot_index in 0..trace.snapshots.len() {
+        for capacity in [0, 7] {
+            let mut invalid = trace.clone();
+            invalid.snapshots[snapshot_index].capacity = capacity;
+
+            cases.push((
+                invalid,
+                AnalysisError::InvalidCapacity {
+                    snapshot_index: if snapshot_index == 0 && capacity != 0 {
+                        1
+                    } else {
+                        snapshot_index
+                    },
+                },
+            ));
+        }
+
+        let mut invalid = trace.clone();
+        invalid.snapshots[snapshot_index].occupancy = 7;
+
+        cases.push((invalid, AnalysisError::InvalidOccupancy { snapshot_index }));
+    }
+
+    for (invalid, error) in cases {
+        let before = invalid.clone();
+        assert_eq!(VehicleOccupancy::from_trace(&invalid), Err(error));
+        assert_eq!(invalid, before);
+    }
+}
+
+#[test]
+fn vehicle_occupancy_checks_passenger_tick_overflow() {
+    let mut product = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    product.snapshots[2].tick = u64::MAX;
+
+    let mut sum = product.clone();
+    sum.snapshots[1].tick = 1 << 62;
+
+    let mut initial = sum.snapshots[1].clone();
+    initial.tick = 0;
+
+    sum.snapshots[0] = initial;
+    sum.snapshots[2].tick = 1 << 63;
+
+    for trace in [product, sum] {
+        let before = trace.clone();
+        assert_eq!(
+            VehicleOccupancy::from_trace(&trace),
+            Err(AnalysisError::TimeOverflow)
+        );
+        assert_eq!(trace, before);
+    }
+
+    let mut boundary = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 1)], 1);
+    boundary.snapshots.remove(0);
+    boundary.snapshots[0].tick = 0;
+    boundary.snapshots[1].tick = u64::MAX;
+
+    assert_eq!(
+        VehicleOccupancy::from_trace(&boundary),
+        Ok(VehicleOccupancy {
+            capacity: 1,
+            max_occupancy: 1,
+            occupied_passenger_ticks: u64::MAX,
+            mean_occupancy: Some(1.0),
+            max_load_factor: Some(1.0),
+            mean_load_factor: Some(1.0),
+        })
+    );
+}
+
+#[test]
+fn vehicle_occupancy_keeps_rounded_means_within_recorded_bounds() {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 3)], 3);
+    trace.snapshots.remove(0);
+    trace.snapshots[0].tick = 0;
+    trace.snapshots[1].tick = 9_007_199_254_740_993;
+
+    assert_eq!(
+        VehicleOccupancy::from_trace(&trace),
+        Ok(VehicleOccupancy {
+            capacity: 3,
+            max_occupancy: 3,
+            occupied_passenger_ticks: 27_021_597_764_222_979,
+            mean_occupancy: Some(3.0),
+            max_load_factor: Some(1.0),
+            mean_load_factor: Some(1.0),
+        })
     );
 }
 
