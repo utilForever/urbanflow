@@ -1,8 +1,205 @@
 use urbanflow::analysis::{
-    OperationalAnalysis, PassengerOutcomes, PassengerTimes, RouteTiming, StopActivity,
-    VehicleOccupancy,
+    AnalysisError, OperationalAnalysis, PassengerOutcomes, PassengerTimes, RouteTiming,
+    StopActivity, VehicleOccupancy,
 };
-use urbanflow::world::NodeId;
+use urbanflow::demand::Demand;
+use urbanflow::rail::{RailPassengers, RailRoute, RailTrace, RailVehicle};
+use urbanflow::time::SimulationClock;
+use urbanflow::world::{EdgeKind, Network, NodeId};
+
+#[test]
+fn analysis_errors_support_standard_error_propagation_and_diagnostics() {
+    fn summarize(trace: &RailTrace) -> Result<PassengerOutcomes, Box<dyn std::error::Error>> {
+        Ok(PassengerOutcomes::from_trace(trace)?)
+    }
+
+    let error = summarize(&RailTrace {
+        snapshots: vec![],
+        completed: false,
+    })
+    .unwrap_err();
+
+    assert_eq!(
+        error.downcast_ref::<AnalysisError>(),
+        Some(&AnalysisError::EmptyTrace)
+    );
+    assert!(error.to_string().contains("empty"));
+
+    for (error, detail) in [
+        (AnalysisError::IncompleteTrace, "incomplete"),
+        (AnalysisError::UnfinishedPassengers { demand_index: 7 }, "7"),
+        (
+            AnalysisError::InvalidPassengerCounts { demand_index: 11 },
+            "11",
+        ),
+        (AnalysisError::CountOverflow, "overflow"),
+    ] {
+        assert!(error.to_string().contains(detail));
+    }
+}
+
+fn completed_trace(demands: &[Demand], capacity: u32) -> RailTrace {
+    let mut network = Network::new();
+    let edge = network
+        .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+    let route = RailRoute::new(&network, vec![edge]).unwrap();
+
+    let mut vehicle = RailVehicle::new(route, capacity, 1, 1).unwrap();
+    vehicle
+        .record_trace(
+            &mut SimulationClock::default(),
+            &mut RailPassengers::new(demands),
+            2,
+        )
+        .unwrap()
+}
+
+#[test]
+fn passenger_outcomes_use_final_counts_including_duplicate_and_ineligible_demands() {
+    let mut trace = completed_trace(
+        &[
+            Demand::new(NodeId(8), NodeId(3), 4),
+            Demand::new(NodeId(8), NodeId(3), 4),
+            Demand::new(NodeId(3), NodeId(8), 3),
+            Demand::new(NodeId(21), NodeId(3), 2),
+            Demand::new(NodeId(8), NodeId(3), 0),
+        ],
+        6,
+    );
+    let before = trace.clone();
+    let expected = PassengerOutcomes {
+        requested: 13,
+        arrived: 6,
+        unserved: 7,
+        served_share: Some(6.0 / 13.0),
+    };
+
+    assert_eq!(PassengerOutcomes::from_trace(&trace), Ok(expected));
+    assert_eq!(trace, before);
+
+    // Recording an already completed service produces just its final frame.
+    trace.snapshots.drain(..2);
+    assert_eq!(PassengerOutcomes::from_trace(&trace), Ok(expected));
+}
+
+#[test]
+fn passenger_outcomes_handle_empty_zero_all_served_and_all_unserved_demand() {
+    for (demands, requested, arrived, unserved, served_share) in [
+        (vec![], 0, 0, 0, None),
+        (vec![Demand::new(NodeId(8), NodeId(3), 0)], 0, 0, 0, None),
+        (
+            vec![Demand::new(NodeId(8), NodeId(3), 2)],
+            2,
+            2,
+            0,
+            Some(1.0),
+        ),
+        (
+            vec![Demand::new(NodeId(3), NodeId(8), 2)],
+            2,
+            0,
+            2,
+            Some(0.0),
+        ),
+    ] {
+        assert_eq!(
+            PassengerOutcomes::from_trace(&completed_trace(&demands, 6)),
+            Ok(PassengerOutcomes {
+                requested,
+                arrived,
+                unserved,
+                served_share,
+            })
+        );
+    }
+}
+
+#[test]
+fn passenger_outcomes_preserve_totals_larger_than_one_demand() {
+    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), u32::MAX); 2], 1);
+
+    assert_eq!(
+        PassengerOutcomes::from_trace(&trace),
+        Ok(PassengerOutcomes {
+            requested: 8_589_934_590,
+            arrived: 1,
+            unserved: 8_589_934_589,
+            served_share: Some(1.0 / 8_589_934_590.0),
+        })
+    );
+}
+
+#[test]
+fn passenger_outcomes_require_a_nonempty_completed_trace_and_terminal_position() {
+    for completed in [false, true] {
+        assert_eq!(
+            PassengerOutcomes::from_trace(&RailTrace {
+                snapshots: vec![],
+                completed,
+            }),
+            Err(AnalysisError::EmptyTrace)
+        );
+    }
+
+    let mut trace = completed_trace(&[], 6);
+    trace.completed = false;
+
+    assert_eq!(
+        PassengerOutcomes::from_trace(&trace),
+        Err(AnalysisError::IncompleteTrace)
+    );
+
+    trace.completed = true;
+    trace.snapshots.pop();
+
+    assert_eq!(
+        PassengerOutcomes::from_trace(&trace),
+        Err(AnalysisError::IncompleteTrace)
+    );
+}
+
+#[test]
+fn passenger_outcomes_reject_remaining_waiting_or_onboard_passengers() {
+    for (waiting, onboard) in [(1, 0), (0, 1)] {
+        let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2); 2], 6);
+
+        let final_frame = trace.snapshots.last_mut().unwrap();
+        final_frame.passengers[1].arrived = 1;
+        final_frame.passengers[1].waiting = waiting;
+        final_frame.passengers[1].onboard = onboard;
+        final_frame.occupancy = onboard;
+
+        let before = trace.clone();
+
+        assert_eq!(
+            PassengerOutcomes::from_trace(&trace),
+            Err(AnalysisError::UnfinishedPassengers { demand_index: 1 })
+        );
+        assert_eq!(trace, before);
+    }
+}
+
+#[test]
+fn passenger_outcomes_require_conservation_per_terminal_demand() {
+    for (arrived, unserved) in [(1, 0), (3, 0), (u32::MAX, u32::MAX)] {
+        let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2); 2], 6);
+
+        let records = &mut trace.snapshots.last_mut().unwrap().passengers;
+        records[0].arrived = arrived;
+        records[0].unserved = unserved;
+        // Aggregate conservation alone would accept the first two cases.
+        records[1].arrived = 4u32.saturating_sub(arrived);
+
+        let before = trace.clone();
+
+        assert_eq!(
+            PassengerOutcomes::from_trace(&trace),
+            Err(AnalysisError::InvalidPassengerCounts { demand_index: 0 })
+        );
+        assert_eq!(trace, before);
+    }
+}
 
 #[test]
 fn operational_results_own_ordered_stop_visits_and_wide_totals() {

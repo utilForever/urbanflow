@@ -41,7 +41,7 @@ The library owns simulation rules. Owned observations, snapshots, and traces let
 | [`env`](src/env.rs), [`action`](src/action.rs)                                                        | Public        | Scenario lifecycle, action validation, episode state, and rewards           |
 | [`time`](src/time.rs)                                                                                 | Public        | Checked integer simulation clock                                            |
 | [`rail`](src/rail.rs)                                                                                 | Public        | Validated routes, vehicle ticks, passenger lifecycle, snapshots, and traces |
-| [`analysis`](src/analysis.rs)                                                                         | Public        | Owned operational result contracts; no calculation or validation yet        |
+| [`analysis`](src/analysis.rs)                                                                         | Public        | Operational result contracts and checked final passenger outcome summaries  |
 | [`metrics`](src/metrics.rs), [`observation`](src/observation.rs), [`step_result`](src/step_result.rs) | Public        | Owned outputs for callers                                                   |
 
 ## Execution Flows
@@ -70,7 +70,9 @@ The caller keeps one vehicle, clock, and passenger set together. `advance` coord
 
 `analysis::OperationalAnalysis` groups concrete passenger outcome, passenger time, vehicle occupancy, stop activity, and route timing structs. It owns its per-stop collection in route-visit order, preserving repeated nodes through stop indices. Integer totals remain separate from optional floating-point means and ratios; passenger time includes both overall totals and the arrived-passenger totals used for completed-journey means. Rustdoc defines units, empty denominators, and the snapshot-interval convention.
 
-This module currently defines data only: public fields do not validate caller-created results, and there is no trace-to-analysis operation or viewer integration. Future calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
+`PassengerOutcomes::from_trace` reads only the final snapshot of a completed `RailTrace`, preserving the input. It checks for a nonempty recording, the completion flag and final position, then validates terminal passenger records in demand order: no waiting or onboard passengers and arrived plus unserved equal to each demand amount. It accumulates checked `u64` totals without merging duplicate demands and returns a served share only for nonzero requested demand. A completion-only recording is accepted. Failures return a typed `AnalysisError` without partial results.
+
+Other result types remain data contracts, and public fields do not validate caller-created results. Full trace consistency validation, the remaining calculations, a combined trace-to-analysis operation, and viewer integration are planned separately. Calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
 
 ## Simulation Contracts
 
