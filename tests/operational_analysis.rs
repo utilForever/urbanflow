@@ -77,6 +77,96 @@ fn completed_trace(demands: &[Demand], capacity: u32) -> RailTrace {
 }
 
 #[test]
+fn route_timing_counts_initial_and_intermediate_dwell_without_final_dwell() {
+    let mut network = Network::new();
+    let outbound = network
+        .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+    let inbound = network
+        .add_edge(NodeId(3), NodeId(8), EdgeKind::Rail)
+        .unwrap();
+    let route = RailRoute::new(&network, vec![outbound, inbound]).unwrap();
+
+    for (travel, dwell, elapsed, traveling, dwelling) in [(1, 1, 4, 2, 2), (3, 2, 10, 6, 4)] {
+        let mut vehicle = RailVehicle::new(route.clone(), 6, travel, dwell).unwrap();
+        let trace = vehicle
+            .record_trace(
+                &mut SimulationClock::default(),
+                &mut RailPassengers::new(&[Demand::new(NodeId(8), NodeId(3), 8)]),
+                elapsed,
+            )
+            .unwrap();
+        let before = trace.clone();
+        let expected = RouteTiming {
+            elapsed_ticks: elapsed,
+            traveling_ticks: traveling,
+            dwelling_ticks: dwelling,
+            completion_tick: elapsed,
+        };
+
+        assert_eq!(RouteTiming::from_trace(&trace), Ok(expected));
+        assert_eq!(RouteTiming::from_trace(&trace), Ok(expected));
+        assert_eq!(trace, before);
+    }
+}
+
+#[test]
+fn route_timing_rejects_invalid_recordings_without_mutation() {
+    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    let mut cases = vec![(
+        RailTrace {
+            snapshots: vec![],
+            completed: true,
+        },
+        AnalysisError::EmptyTrace,
+    )];
+
+    let mut invalid = trace.clone();
+    invalid.completed = false;
+
+    cases.push((invalid, AnalysisError::IncompleteTrace));
+
+    let mut invalid = trace.clone();
+    invalid.snapshots.pop();
+
+    cases.push((invalid, AnalysisError::IncompleteTrace));
+
+    for tick in [0, 2, 3] {
+        let mut invalid = trace.clone();
+        invalid.snapshots[1].tick = tick;
+
+        cases.push((
+            invalid,
+            AnalysisError::InvalidTickOrder {
+                snapshot_index: if tick == 0 { 1 } else { 2 },
+            },
+        ));
+    }
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[2].passengers[0].waiting = 1;
+
+    cases.push((
+        invalid,
+        AnalysisError::UnfinishedPassengers { demand_index: 0 },
+    ));
+
+    let mut invalid = trace.clone();
+    invalid.snapshots[2].passengers[0].arrived = 1;
+
+    cases.push((
+        invalid,
+        AnalysisError::InvalidPassengerCounts { demand_index: 0 },
+    ));
+
+    for (invalid, error) in cases {
+        let before = invalid.clone();
+        assert_eq!(RouteTiming::from_trace(&invalid), Err(error));
+        assert_eq!(invalid, before);
+    }
+}
+
+#[test]
 fn stop_activity_counts_duplicate_demands_and_final_waiting_before_completion() {
     let trace = completed_trace(
         &[
