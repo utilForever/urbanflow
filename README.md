@@ -32,6 +32,7 @@
 - Checked passenger outcome totals, served share, and waiting, onboard, and journey time metrics from completed Rail traces.
 - Maximum and time-weighted mean vehicle occupancy and load factors over recorded active Rail service.
 - Boarding, alighting, and remaining waiting passengers per ordered Rail stop visit.
+- Recorded Rail travel, dwell, and total active duration with the absolute completion tick.
 - A self-contained HTML example for inspecting recorded Rail positions in a browser.
 
 Trams, demand-responsive transit (DRT), broader analysis tools, application integrations, and large-scale simulation are planned. See [Architecture](ARCHITECTURE.md) for current capabilities and future direction.
@@ -114,7 +115,9 @@ A trace records the initial snapshot and each subsequent tick, up to the supplie
 Use `PassengerOutcomes::from_trace(&trace)` to sum requested, arrived, and unserved passengers from the final snapshot of a completed Rail trace, including duplicate demands. Totals use checked `u64` arithmetic, and `served_share` is `None` when no passengers were requested. For the Rail trace above:
 
 ```rust
-use urbanflow::analysis::{PassengerOutcomes, PassengerTimes, StopActivity, VehicleOccupancy};
+use urbanflow::analysis::{
+    PassengerOutcomes, PassengerTimes, RouteTiming, StopActivity, VehicleOccupancy,
+};
 
 let outcomes = PassengerOutcomes::from_trace(&trace).unwrap();
 assert_eq!((outcomes.requested, outcomes.arrived, outcomes.unserved), (10, 6, 4));
@@ -138,9 +141,15 @@ let stops = StopActivity::from_trace(&trace).unwrap();
 assert_eq!(stops.len(), 2);
 assert_eq!((stops[0].boarded, stops[0].remaining_waiting), (6, 4));
 assert_eq!(stops[1].alighted, 6);
+
+let timing = RouteTiming::from_trace(&trace).unwrap();
+assert_eq!(timing.elapsed_ticks, 2);
+assert_eq!(timing.traveling_ticks, 1);
+assert_eq!(timing.dwelling_ticks, 1);
+assert_eq!(timing.completion_tick, 2);
 ```
 
-All four operations reject empty or incomplete traces, remaining waiting or onboard passengers, and final demand counts that do not conserve passengers. Passenger outcome, passenger time, and vehicle occupancy summaries also accept a recording containing only the completed snapshot. `AnalysisError` implements `Display` and `std::error::Error`, so callers returning `Result<_, Box<dyn std::error::Error>>` can propagate failures with `?`.
+All five operations reject empty or incomplete traces, remaining waiting or onboard passengers, and final demand counts that do not conserve passengers. Passenger outcome, passenger time, vehicle occupancy, and route timing summaries also accept a recording containing only the completed snapshot. `AnalysisError` implements `Display` and `std::error::Error`, so callers returning `Result<_, Box<dyn std::error::Error>>` can propagate failures with `?`.
 
 `PassengerTimes::from_trace` accumulates checked integer passenger-ticks using each interval's starting counts, including onboard dwell. Its means include only passengers who arrived, attributing arrivals to earlier boardings within each demand; unserved passengers' waiting and onboard time contribute only to the overall totals. Means are `None` when nobody arrived. Only recorded intervals contribute time, so a completion-only recording has zero totals and zero means when passengers arrived. It checks increasing ticks, stable ordered demands, passenger conservation, and forward lifecycle transitions before returning a result. Full trace consistency validation, including tick contiguity, occupancy, and route positions, remains separate work.
 
@@ -148,7 +157,9 @@ All four operations reject empty or incomplete traces, remaining waiting or onbo
 
 `StopActivity::from_trace` returns one entry per route visit, including empty visits and separate entries for repeated nodes. It counts boarding and alighting separately even when both happen at the same stop. Remaining waiting includes ineligible demand originating there; at the final stop it uses the count before passengers become unserved. This operation requires a full recording that starts at stop zero with every passenger waiting and continues tick by tick through completion; the starting tick may be nonzero. It checks ordered demands, conserved counts, stop order, and passenger changes at stop processing. It rejects missing history instead of reconstructing unrecorded activity, and leaves capacity and detailed movement validation to separate work.
 
-Route timing remains a data contract; its calculation, combined analysis, full trace validation, and viewer integration are planned separately. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
+`RouteTiming::from_trace` classifies each recorded interval by its starting position: `AtStop` adds dwelling ticks and `Traveling` adds traveling ticks. Their sum is the total active elapsed duration, including initial dwell and excluding final-stop dwell or intervals starting at `Complete`. The completion tick is the final snapshot's absolute tick, which may differ from elapsed duration when recording starts later. A completion-only recording has zero durations. Tick gaps use the starting state for the whole interval; ticks must strictly increase.
+
+Combined analysis, full trace validation, and viewer integration are planned separately. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
 
 ### Browser Viewer
 
