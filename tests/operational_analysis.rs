@@ -111,6 +111,92 @@ fn route_timing_counts_initial_and_intermediate_dwell_without_final_dwell() {
 }
 
 #[test]
+fn route_timing_measures_only_recorded_active_intervals() {
+    let mut trace = completed_trace(&[], 6);
+
+    for (snapshot, tick) in trace.snapshots.iter_mut().zip([100, 103, 108]) {
+        snapshot.tick = tick;
+    }
+
+    let expected = RouteTiming {
+        elapsed_ticks: 8,
+        traveling_ticks: 5,
+        dwelling_ticks: 3,
+        completion_tick: 108,
+    };
+
+    assert_eq!(RouteTiming::from_trace(&trace), Ok(expected));
+
+    // A caller-added completed interval contributes no travel or dwell time.
+    let mut later = trace.snapshots.last().unwrap().clone();
+    later.tick = 118;
+
+    trace.snapshots.push(later);
+
+    assert_eq!(
+        RouteTiming::from_trace(&trace),
+        Ok(RouteTiming {
+            completion_tick: 118,
+            ..expected
+        })
+    );
+
+    trace.snapshots.pop();
+    trace.snapshots.remove(0);
+
+    assert_eq!(
+        RouteTiming::from_trace(&trace),
+        Ok(RouteTiming {
+            elapsed_ticks: 5,
+            traveling_ticks: 5,
+            dwelling_ticks: 0,
+            completion_tick: 108,
+        })
+    );
+
+    trace.snapshots.remove(0);
+
+    assert_eq!(
+        RouteTiming::from_trace(&trace),
+        Ok(RouteTiming {
+            elapsed_ticks: 0,
+            traveling_ticks: 0,
+            dwelling_ticks: 0,
+            completion_tick: 108,
+        })
+    );
+}
+
+#[test]
+fn route_timing_preserves_full_width_tick_durations() {
+    let mut trace = completed_trace(&[], 6);
+    trace.snapshots[2].tick = u64::MAX;
+
+    assert_eq!(
+        RouteTiming::from_trace(&trace),
+        Ok(RouteTiming {
+            elapsed_ticks: u64::MAX,
+            traveling_ticks: u64::MAX - 1,
+            dwelling_ticks: 1,
+            completion_tick: u64::MAX,
+        })
+    );
+
+    trace.snapshots[0].tick = u64::MAX - 2;
+    trace.snapshots[1].tick = u64::MAX - 1;
+
+    assert_eq!(
+        RouteTiming::from_trace(&trace),
+        Ok(RouteTiming {
+            elapsed_ticks: 2,
+            traveling_ticks: 1,
+            dwelling_ticks: 1,
+            completion_tick: u64::MAX,
+        })
+    );
+}
+
+#[test]
 fn route_timing_rejects_invalid_recordings_without_mutation() {
     let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
     let mut cases = vec![(
