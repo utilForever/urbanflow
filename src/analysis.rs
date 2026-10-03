@@ -52,7 +52,7 @@ pub enum AnalysisError {
         snapshot_index: usize,
         demand_index: usize,
     },
-    /// A passenger-tick product, total, or combined journey exceeds `u64::MAX`.
+    /// A duration, passenger-tick product, or time total exceeds `u64::MAX`.
     TimeOverflow,
     /// Capacity is zero or differs from the first snapshot's capacity.
     InvalidCapacity { snapshot_index: usize },
@@ -95,7 +95,7 @@ impl fmt::Display for AnalysisError {
                 formatter,
                 "snapshot {snapshot_index} has an invalid lifecycle transition for demand record {demand_index}"
             ),
-            Self::TimeOverflow => formatter.write_str("passenger time overflow"),
+            Self::TimeOverflow => formatter.write_str("time overflow"),
             Self::InvalidCapacity { snapshot_index } => write!(
                 formatter,
                 "snapshot {snapshot_index} has zero or inconsistent vehicle capacity"
