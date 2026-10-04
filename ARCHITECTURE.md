@@ -23,13 +23,18 @@ flowchart LR
         State --> Record["record_trace: bounded advance + snapshot"]
         Record --> Trace["RailTrace"]
     end
+    subgraph Analysis["Analysis: completed Rail service"]
+        Trace --> Analyze["analysis::analyze: validate + summarize"]
+        Analyze --> Summaries["OperationalAnalysis"]
+    end
     subgraph Presentation["Example: recorded playback"]
-        Trace --> HTML["world + trace → offline HTML"]
-        HTML --> Viewer["browser: SVG + playback controls"]
+        Trace --> HTML["world + trace + optional analysis → offline HTML"]
+        Summaries --> HTML
+        HTML --> Viewer["browser: SVG + playback controls + summary tables"]
     end
 ```
 
-The library owns simulation rules. Owned observations, snapshots, and traces let consumers retain results and replay movement without borrowing live state or reimplementing those rules.
+The library owns simulation rules. Owned observations, snapshots, and traces let consumers retain results and replay movement without borrowing live state or reimplementing those rules. Rail produces the trace, `analysis` reads a completed trace into owned summaries, and the browser consumer serializes and displays those results. Analysis never advances service state; presentation never calculates operational metrics or changes recorded results. Partial recordings remain viewable without analysis.
 
 ## Module Map
 
@@ -68,7 +73,7 @@ The caller keeps one vehicle, clock, and passenger set together. `advance` coord
 
 ### Operational Result Contracts
 
-`analysis::OperationalAnalysis` groups concrete passenger outcome, passenger time, vehicle occupancy, stop activity, and route timing structs. It owns its per-stop collection in route-visit order, preserving repeated nodes through stop indices. Integer totals remain separate from optional floating-point means and ratios; passenger time includes both overall totals and the arrived-passenger totals used for completed-journey means. Rustdoc defines units, empty denominators, and the snapshot-interval convention.
+`analysis::OperationalAnalysis` groups concrete passenger outcome, passenger time, vehicle occupancy, stop activity, and route timing structs. It owns its per-stop collection in route-visit order, preserving repeated nodes through stop indices. Integer totals remain separate from optional floating-point means and ratios; passenger time includes both overall totals and the arrived-passenger totals used for completed-journey means. The [README example and metric definitions](README.md#operational-analysis) show the public workflow; [rustdoc](src/analysis.rs) specifies units, empty denominators, and the snapshot-interval convention. All time uses simulation ticks, independent of browser playback time.
 
 `analysis::analyze(&RailTrace)` is the combined public entry point. It runs the shared preflight once, then reuses the individual summaries' private calculation functions in field order: passenger outcomes, passenger times, vehicle occupancy, stop activity, and route timing. Passenger times reuse the already computed outcome total. It returns an owned `OperationalAnalysis` or the first `AnalysisError`, without modifying the trace or returning partial results. Including stop activity requires a full recording from stop zero with all passengers waiting through completion; a recording starting during service or containing only completion is rejected even if individual summaries support it.
 
@@ -116,5 +121,7 @@ The completed-run summary displays all five embedded analysis groups as native H
 ## Planned Direction
 
 Trams, DRT, broader macro- and micro-level analysis, application interfaces, and large-scale low-latency simulation remain planned. The Rail service currently has one fixed-route vehicle; multiple vehicles, automatic reverse service, timetables, headways, and passenger transfers are separate work. Road traffic, signals, lanes, and congestion-driven movement are not implemented in Rail service. GIS maps, a web server, WebAssembly, and frontend frameworks are also deferred; the current viewer uses a schematic layout and offline HTML.
+
+Operational analysis currently summarizes one recorded service. Multiple-route and multiple-vehicle comparisons, statistical experiments, confidence intervals, and optimization remain deferred. Dataframes, databases, query engines, charting dependencies, hosted dashboards, and GIS analysis are outside this workflow.
 
 Future interfaces should use the public crate API and keep rendering, coordinates, serialization, storage, and transport in consumer layers. Add new modules only when a concrete requirement establishes their responsibility.
