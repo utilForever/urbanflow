@@ -1,7 +1,10 @@
 #[path = "../examples/rail_viewer/mod.rs"]
 mod rail_viewer;
 
-use urbanflow::analysis::AnalysisError;
+use urbanflow::analysis::{
+    AnalysisError, OperationalAnalysis, PassengerOutcomes, PassengerTimes, RouteTiming,
+    StopActivity, VehicleOccupancy, analyze,
+};
 use urbanflow::demand::Demand;
 use urbanflow::rail::{
     RailPassengers, RailPosition, RailRoute, RailTrace, RailVehicle, RailVehicleState,
@@ -152,6 +155,69 @@ fn fixed_route_service_reaches_the_viewer_end_to_end() {
         &vehicle.snapshot(&clock, &passengers).unwrap()
     );
 
+    let before = trace.clone();
+    let analysis = analyze(&trace).unwrap();
+
+    // Two passengers board at tick 1 and arrive at 3; two board at 3 and
+    // arrive at 6, including one onboard dwell tick. Two wait all six ticks.
+    assert_eq!(
+        analysis,
+        OperationalAnalysis {
+            passenger_outcomes: PassengerOutcomes {
+                requested: 6,
+                arrived: 4,
+                unserved: 2,
+                served_share: Some(4.0 / 6.0),
+            },
+            passenger_times: PassengerTimes {
+                waiting_passenger_ticks: 20,
+                onboard_passenger_ticks: 10,
+                arrived_waiting_passenger_ticks: 8,
+                arrived_onboard_passenger_ticks: 10,
+                mean_waiting_ticks: Some(2.0),
+                mean_onboard_ticks: Some(2.5),
+                mean_journey_ticks: Some(4.5),
+            },
+            vehicle_occupancy: VehicleOccupancy {
+                capacity: 2,
+                max_occupancy: 2,
+                occupied_passenger_ticks: 10,
+                mean_occupancy: Some(10.0 / 6.0),
+                max_load_factor: Some(1.0),
+                mean_load_factor: Some(5.0 / 6.0),
+            },
+            stops: vec![
+                StopActivity {
+                    stop_index: 0,
+                    node: NodeId(8),
+                    boarded: 2,
+                    alighted: 0,
+                    remaining_waiting: 2,
+                },
+                StopActivity {
+                    stop_index: 1,
+                    node: NodeId(3),
+                    boarded: 2,
+                    alighted: 2,
+                    remaining_waiting: 0,
+                },
+                StopActivity {
+                    stop_index: 2,
+                    node: NodeId(21),
+                    boarded: 0,
+                    alighted: 2,
+                    remaining_waiting: 0,
+                },
+            ],
+            route_timing: RouteTiming {
+                elapsed_ticks: 6,
+                traveling_ticks: 4,
+                dwelling_ticks: 2,
+                completion_tick: 6,
+            },
+        }
+    );
+
     let html = rail_viewer::render(&world, &trace).unwrap();
     // This hand-checked fixture covers the entire ordered payload, not just
     // isolated fields. Its schema contains no whitespace inside string values.
@@ -168,6 +234,8 @@ fn fixed_route_service_reaches_the_viewer_end_to_end() {
             "missing viewer control: {control}"
         );
     }
+
+    assert_eq!(trace, before);
 }
 
 #[test]
