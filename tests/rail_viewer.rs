@@ -236,6 +236,23 @@ fn fixed_route_service_reaches_the_viewer_end_to_end() {
     }
 
     assert_eq!(trace, before);
+
+    // Keep valid passenger counts but contradict them in the vehicle load.
+    // Every summary and the viewer must reject the same malformed recording.
+    let mut invalid = trace.clone();
+    invalid.snapshots[3].occupancy = 1;
+
+    let before = invalid.clone();
+    let error = AnalysisError::InvalidOccupancy { snapshot_index: 3 };
+
+    assert_eq!(analyze(&invalid), Err(error));
+    assert_eq!(PassengerOutcomes::from_trace(&invalid), Err(error));
+    assert_eq!(PassengerTimes::from_trace(&invalid), Err(error));
+    assert_eq!(VehicleOccupancy::from_trace(&invalid), Err(error));
+    assert_eq!(StopActivity::from_trace(&invalid), Err(error));
+    assert_eq!(RouteTiming::from_trace(&invalid), Err(error));
+    assert_eq!(rail_viewer::render(&world, &invalid), Err(error));
+    assert_eq!(invalid, before);
 }
 
 #[test]
