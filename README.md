@@ -35,7 +35,7 @@
 - Recorded Rail travel, dwell, and total active duration with the absolute completion tick.
 - Shared validation of tick continuity, passenger conservation, and vehicle occupancy before operational analysis.
 - One `analysis::analyze` operation returning all five summaries from a full Rail trace.
-- A self-contained HTML example for inspecting recorded Rail positions in a browser.
+- A self-contained HTML example for inspecting recorded Rail positions and completed-run operational analysis in a browser.
 
 Trams, demand-responsive transit (DRT), broader analysis tools, application integrations, and large-scale simulation are planned. See [Architecture](ARCHITECTURE.md) for current capabilities and future direction.
 
@@ -175,7 +175,7 @@ All five operations share a read-only preflight before calculation. It rejects e
 
 `RouteTiming::from_trace` classifies each recorded interval by its starting position: `AtStop` adds dwelling ticks and `Traveling` adds traveling ticks. Their sum is the total active elapsed duration, including initial dwell and excluding final-stop dwell or intervals starting at `Complete`. The completion tick is the final snapshot's absolute tick, which may differ from elapsed duration when recording starts later. A completion-only recording has zero durations; gaps are rejected.
 
-The browser viewer embeds core-produced analysis in its HTML payload; summary display is planned separately. Shared validation does not verify detailed movement timing, boarding eligibility, or agreement with an external route or network. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
+The browser viewer embeds these core-produced summaries for completed recordings. Shared validation does not verify detailed movement timing, boarding eligibility, or agreement with an external route or network. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
 
 ### Browser Viewer
 
@@ -206,9 +206,13 @@ The Service status panel shows the selected snapshot's exact tick, vehicle state
 
 The demo starts with 11 waiting passengers. Six board at node 8 and arrive at node 21; the remaining two at node 8 and all three at node 3 become unserved at completion. Seek to tick 18 to see 6 arrived, 5 unserved, and zero waiting or onboard. A complete recording means the vehicle finished its route, not that every passenger arrived. A partial trace retains its last recorded counts without forcing waiting passengers to become unserved.
 
+The Completed-run operational summary appears below the playback controls immediately on opening the file. Its tables show final passenger outcomes and served share, passenger time totals and means, vehicle occupancy and load factors, route timing, and boarding/alighting/remaining waiting per stop visit. These values come from Rust's `analysis::analyze` and remain fixed during playback, seeking, and reset. Repeated nodes retain separate rows in route order.
+
+Time uses simulation ticks, passenger-time totals use passenger-ticks, and passenger-time means include only arrived passengers. Means display two decimal places and shares/load factors display percentages; undefined values display `N/A`, while integer totals and completion ticks retain their full precision. Partial and empty recordings show an unavailable-analysis message. Invalid completed recordings return an analysis error during HTML generation, before the output file is written.
+
 This is one fixed-route Rail service with fixed travel and dwell durations and aggregated passenger counts, independent of `Env` rewards. Road edges provide network context only. Multiple vehicles, timetables, headways, transfers, Road traffic, congestion-driven movement, Tram/DRT vehicles, and geographic maps are not modeled by this demo.
 
-To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`, which returns `Result<String, AnalysisError>`. Completed recordings must satisfy `analysis::analyze`; errors are returned before the output file is written. Layout and display stay in the example; the viewer makes no simulation decisions.
+To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`, which returns `Result<String, AnalysisError>`. Completed recordings must include the full service from its initial state. Layout and display stay in the example; the viewer makes no simulation decisions.
 
 ## Baseline RL examples
 
@@ -229,7 +233,7 @@ cargo doc --no-deps --open
 
 `cargo test --test rail_viewer fixed_route_service_reaches_the_viewer_end_to_end` checks one public-API Rail service from configuration through completion and HTML generation. It asserts every recorded position and passenger count, trace termination, the full embedded data against a fixed fixture, and playback control presence. It also runs as part of `cargo test --all`.
 
-For the viewer's browser interaction tests, run `python3 -m http.server 8121 --bind 127.0.0.1` from the repository root and open [the playback test page](http://127.0.0.1:8121/tests/rail_viewer_playback.html). It checks playback and status-panel synchronization using the real viewer template, DOM controls, and SVG geometry with a controlled animation clock. This separate browser check requires no frontend dependencies and is not run by `cargo test`.
+For the viewer's browser interaction tests, run `python3 -m http.server 8121 --bind 127.0.0.1` from the repository root and open [the playback test page](http://127.0.0.1:8121/tests/rail_viewer_playback.html). It checks playback and status-panel synchronization, final analysis display against the Rust-verified fixture, and narrow-screen layout using the real viewer template, DOM controls, and SVG geometry with a controlled animation clock. This separate browser check requires no frontend dependencies and is not run by `cargo test`.
 
 ## License
 
