@@ -34,6 +34,7 @@
 - Boarding, alighting, and remaining waiting passengers per ordered Rail stop visit.
 - Recorded Rail travel, dwell, and total active duration with the absolute completion tick.
 - Shared validation of tick continuity, passenger conservation, and vehicle occupancy before operational analysis.
+- One `analysis::analyze` operation returning all five summaries from a full Rail trace.
 - A self-contained HTML example for inspecting recorded Rail positions in a browser.
 
 Trams, demand-responsive transit (DRT), broader analysis tools, application integrations, and large-scale simulation are planned. See [Architecture](ARCHITECTURE.md) for current capabilities and future direction.
@@ -109,9 +110,23 @@ assert_eq!(trace.snapshots[2].passengers[0].arrived, 6);
 
 A trace records the initial snapshot and each subsequent tick, up to the supplied number of advances. Check `completed` to distinguish a full service replay from a run stopped by the limit. For individual ticks, use `advance()` and `snapshot()`. Timing, passenger, and error contracts are documented in the [Rail API](src/rail.rs).
 
-### Operational Analysis Result Types
+### Operational Analysis
 
 [`analysis::OperationalAnalysis`](src/analysis.rs) defines owned summaries for passenger outcomes and time, vehicle occupancy, ordered stop visits, and route timing. Counts and passenger-ticks use integers; undefined means and ratios use `None`. Repeated visits to the same node retain separate entries in route order.
+
+Use `analysis::analyze(&trace)` to derive all five summaries in one call. It runs shared validation once, leaves the trace unchanged, and returns `Result<OperationalAnalysis, AnalysisError>`. Because it includes stop activity, the recording must start at stop zero with all passengers waiting and contain every tick through completion; the initial tick may be nonzero. For the Rail trace above:
+
+```rust
+let analysis = urbanflow::analysis::analyze(&trace).unwrap();
+
+assert_eq!(analysis.passenger_outcomes.arrived, 6);
+assert_eq!(analysis.passenger_times.mean_journey_ticks, Some(2.0));
+assert_eq!(analysis.vehicle_occupancy.max_occupancy, 6);
+assert_eq!(analysis.stops[0].boarded, 6);
+assert_eq!(analysis.route_timing.elapsed_ticks, 2);
+```
+
+Individual summaries remain available when only part of the analysis is needed.
 
 Use `PassengerOutcomes::from_trace(&trace)` to sum requested, arrived, and unserved passengers from the final snapshot of a completed Rail trace, including duplicate demands. Totals use checked `u64` arithmetic, and `served_share` is `None` when no passengers were requested. For the Rail trace above:
 
@@ -160,7 +175,7 @@ All five operations share a read-only preflight before calculation. It rejects e
 
 `RouteTiming::from_trace` classifies each recorded interval by its starting position: `AtStop` adds dwelling ticks and `Traveling` adds traveling ticks. Their sum is the total active elapsed duration, including initial dwell and excluding final-stop dwell or intervals starting at `Complete`. The completion tick is the final snapshot's absolute tick, which may differ from elapsed duration when recording starts later. A completion-only recording has zero durations; gaps are rejected.
 
-Combined analysis and viewer integration are planned separately. Shared validation does not verify detailed movement timing, boarding eligibility, or agreement with an external route or network. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
+Viewer integration is planned separately. Shared validation does not verify detailed movement timing, boarding eligibility, or agreement with an external route or network. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
 
 ### Browser Viewer
 

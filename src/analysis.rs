@@ -1,5 +1,6 @@
 //! Owned operational results for one completed Rail service.
 //!
+//! [`analyze`] derives all five summaries from a full service recording.
 //! [`PassengerOutcomes::from_trace`] summarizes final passenger counts.
 //! [`PassengerTimes::from_trace`] derives passenger-ticks and arrived-passenger
 //! means over recorded intervals.
@@ -7,7 +8,6 @@
 //! [`StopActivity::from_trace`] summarizes each visit in a full service recording.
 //! [`RouteTiming::from_trace`] breaks active duration into travel and dwell.
 //! All operations share a read-only consistency preflight before calculation.
-//! Combined analysis is not yet implemented.
 //! Public fields permit caller construction without validation.
 //! Unlike [`crate::metrics::Metrics`], these summaries describe a recorded
 //! service, not aggregate network allocation, construction cost, or reward.
@@ -44,10 +44,11 @@
 //! Failures return [`AnalysisError`] without mutating the trace or returning
 //! partial results. Indices are zero-based; interval errors identify the later
 //! snapshot. Recordings starting during service or containing only completion
-//! remain valid, except that [`StopActivity::from_trace`] requires full history.
+//! remain valid, except that [`analyze`] and [`StopActivity::from_trace`] require
+//! full history.
 //! Detailed movement timing, boarding eligibility, and agreement with an external
 //! route or network are outside the shared preflight; stop-sequence checks remain
-//! specific to [`StopActivity::from_trace`].
+//! part of stop activity calculation, including in [`analyze`].
 
 use crate::rail::{RailPosition, RailSnapshot, RailTrace};
 use crate::world::NodeId;
@@ -265,6 +266,37 @@ pub struct OperationalAnalysis {
     pub stops: Vec<StopActivity>,
     /// Recorded duration breakdown and absolute completion tick.
     pub route_timing: RouteTiming,
+}
+
+/// Derives all operational summaries without modifying the source trace.
+///
+/// Requires a full recording from stop zero with all passengers waiting through
+/// service completion, as for [`StopActivity::from_trace`]. The initial tick may
+/// be nonzero. Results are owned and deterministic for the same trace, retaining
+/// duplicate demands and repeated stop visits under each summary's conventions.
+///
+/// # Errors
+///
+/// Runs the shared [trace validation](self#trace-validation) once before any
+/// calculation, then computes passenger outcomes, passenger times, vehicle
+/// occupancy, stop activity, and route timing in that order. Returns the first
+/// [`AnalysisError`], including missing initial history, inconsistent stop
+/// sequences, or checked arithmetic overflow, without returning partial results.
+pub fn analyze(trace: &RailTrace) -> Result<OperationalAnalysis, AnalysisError> {
+    let final_snapshot = validate_trace(trace)?;
+    let passenger_outcomes = PassengerOutcomes::from_final_snapshot(final_snapshot)?;
+
+    Ok(OperationalAnalysis {
+        passenger_outcomes,
+        passenger_times: PassengerTimes::from_validated_trace(
+            trace,
+            final_snapshot,
+            passenger_outcomes.arrived,
+        )?,
+        vehicle_occupancy: VehicleOccupancy::from_validated_trace(trace)?,
+        stops: StopActivity::from_validated_trace(trace)?,
+        route_timing: RouteTiming::from_validated_trace(trace, final_snapshot.tick)?,
+    })
 }
 
 /// Aggregate final passenger counts, including duplicate demand records.
