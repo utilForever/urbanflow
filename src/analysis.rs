@@ -22,7 +22,7 @@
 //! snapshot contributes no interval. Completed-passenger time totals count only
 //! passengers who arrived, excluding time spent waiting by unserved passengers.
 
-use crate::rail::{RailPosition, RailTrace};
+use crate::rail::{RailPosition, RailSnapshot, RailTrace};
 use crate::world::NodeId;
 use std::fmt;
 
@@ -120,6 +120,26 @@ impl fmt::Display for AnalysisError {
 
 impl std::error::Error for AnalysisError {}
 
+fn validate_trace(trace: &RailTrace) -> Result<&RailSnapshot, AnalysisError> {
+    let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
+
+    if !trace.completed || !matches!(final_snapshot.position, RailPosition::Complete { .. }) {
+        return Err(AnalysisError::IncompleteTrace);
+    }
+
+    for (demand_index, record) in final_snapshot.passengers.iter().enumerate() {
+        if record.waiting != 0 || record.onboard != 0 {
+            return Err(AnalysisError::UnfinishedPassengers { demand_index });
+        }
+
+        if record.arrived.checked_add(record.unserved) != Some(record.demand.amount) {
+            return Err(AnalysisError::InvalidPassengerCounts { demand_index });
+        }
+    }
+
+    Ok(final_snapshot)
+}
+
 fn validate_passenger_records(trace: &RailTrace) -> Result<(), AnalysisError> {
     let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
 
@@ -209,25 +229,13 @@ impl PassengerOutcomes {
     /// overflow returns [`AnalysisError::CountOverflow`]; no partial result is
     /// returned on any error.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
-        let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
-
-        if !trace.completed || !matches!(final_snapshot.position, RailPosition::Complete { .. }) {
-            return Err(AnalysisError::IncompleteTrace);
-        }
+        let final_snapshot = validate_trace(trace)?;
 
         let mut requested = 0u64;
         let mut arrived = 0u64;
         let mut unserved = 0u64;
 
-        for (demand_index, record) in final_snapshot.passengers.iter().enumerate() {
-            if record.waiting != 0 || record.onboard != 0 {
-                return Err(AnalysisError::UnfinishedPassengers { demand_index });
-            }
-
-            if record.arrived.checked_add(record.unserved) != Some(record.demand.amount) {
-                return Err(AnalysisError::InvalidPassengerCounts { demand_index });
-            }
-
+        for record in final_snapshot.passengers.iter() {
             requested = requested
                 .checked_add(u64::from(record.demand.amount))
                 .ok_or(AnalysisError::CountOverflow)?;
