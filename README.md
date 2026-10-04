@@ -175,7 +175,7 @@ All five operations share a read-only preflight before calculation. It rejects e
 
 `RouteTiming::from_trace` classifies each recorded interval by its starting position: `AtStop` adds dwelling ticks and `Traveling` adds traveling ticks. Their sum is the total active elapsed duration, including initial dwell and excluding final-stop dwell or intervals starting at `Complete`. The completion tick is the final snapshot's absolute tick, which may differ from elapsed duration when recording starts later. A completion-only recording has zero durations; gaps are rejected.
 
-Viewer integration is planned separately. Shared validation does not verify detailed movement timing, boarding eligibility, or agreement with an external route or network. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
+The browser viewer embeds core-produced analysis in its HTML payload; summary display is planned separately. Shared validation does not verify detailed movement timing, boarding eligibility, or agreement with an external route or network. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
 
 ### Browser Viewer
 
@@ -208,7 +208,7 @@ The demo starts with 11 waiting passengers. Six board at node 8 and arrive at no
 
 This is one fixed-route Rail service with fixed travel and dwell durations and aggregated passenger counts, independent of `Env` rewards. Road edges provide network context only. Multiple vehicles, timetables, headways, transfers, Road traffic, congestion-driven movement, Tram/DRT vehicles, and geographic maps are not modeled by this demo.
 
-To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`. Layout and display stay in the example; the viewer makes no simulation decisions.
+To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`, which returns `Result<String, AnalysisError>`. Completed recordings must satisfy `analysis::analyze`; errors are returned before the output file is written. Layout and display stay in the example; the viewer makes no simulation decisions.
 
 ## Baseline RL examples
 

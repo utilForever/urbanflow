@@ -84,7 +84,7 @@ Every `from_trace` operation runs the same private preflight in `analysis` befor
 
 `RouteTiming::from_trace` sums validated tick deltas by each interval's starting position: `AtStop` contributes dwell and `Traveling` contributes travel. Checked `u64` totals satisfy `elapsed_ticks == traveling_ticks + dwelling_ticks`; initial dwell is included, while intervals starting at `Complete` add no time. The completion tick is the final snapshot's absolute tick. Core-produced recordings end at completion, so elapsed time also equals the final tick minus the first; a completion-only recording has zero durations. Recordings starting during service use only recorded intervals without reconstructing movement.
 
-Public fields do not validate caller-created results. Detailed movement timing, boarding eligibility, and agreement with an external route or network remain outside the shared preflight. Viewer integration is planned separately. Calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
+Public fields do not validate caller-created results. Detailed movement timing, boarding eligibility, and agreement with an external route or network remain outside the shared preflight. Viewer display is planned separately. Calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
 
 ## Simulation Contracts
 
@@ -103,7 +103,7 @@ The [`random_policy`](examples/random_policy.rs) and [`tabular_q_learning`](exam
 
 The [README walkthrough](README.md#browser-viewer) is the supported local generation and playback workflow. Rust finishes recording before the browser opens; playback reads those fixed snapshots. Identical scenario inputs and ordering produce identical traces and HTML, regardless of browser playback speed or seeking.
 
-The [`rail_viewer`](examples/rail_viewer.rs) example records a small service through `RailVehicle::record_trace` and writes one offline HTML file. Its [consumer module](examples/rail_viewer/mod.rs) serializes the world and trace into a fixed JSON schema; IDs and 64-bit tick values use strings to preserve JavaScript precision. No serialization dependency or public core API is added.
+The [`rail_viewer`](examples/rail_viewer.rs) example records a small service through `RailVehicle::record_trace` and writes one offline HTML file. Its [consumer module](examples/rail_viewer/mod.rs) serializes the world, trace, and core-produced `OperationalAnalysis` into a fixed JSON schema. `render` calls `analysis::analyze` once for completed traces and propagates errors before file writing; partial traces embed `analysis: null`. IDs and all `u64` totals and tick values use strings to preserve JavaScript precision; optional means and ratios use JSON numbers or `null`. No serialization dependency or public core API is added.
 
 The [embedded template](examples/rail_viewer/viewer.html) owns SVG layout, edge styling, snapshot selection, and playback controls. Nodes follow stored order, parallel and reverse edges are separated, and the marker uses the snapshot's node or resolved edge ID and travel progress.
 

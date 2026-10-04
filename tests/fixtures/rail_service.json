@@ -296,5 +296,59 @@
         ]
       }
     ]
+  },
+  "analysis": {
+    "passenger_outcomes": {
+      "requested": "6",
+      "arrived": "4",
+      "unserved": "2",
+      "served_share": 0.6666666666666666
+    },
+    "passenger_times": {
+      "waiting_passenger_ticks": "20",
+      "onboard_passenger_ticks": "10",
+      "arrived_waiting_passenger_ticks": "8",
+      "arrived_onboard_passenger_ticks": "10",
+      "mean_waiting_ticks": 2,
+      "mean_onboard_ticks": 2.5,
+      "mean_journey_ticks": 4.5
+    },
+    "vehicle_occupancy": {
+      "capacity": 2,
+      "max_occupancy": 2,
+      "occupied_passenger_ticks": "10",
+      "mean_occupancy": 1.6666666666666667,
+      "max_load_factor": 1,
+      "mean_load_factor": 0.8333333333333334
+    },
+    "stops": [
+      {
+        "stop_index": "0",
+        "node": "8",
+        "boarded": "2",
+        "alighted": "0",
+        "remaining_waiting": "2"
+      },
+      {
+        "stop_index": "1",
+        "node": "3",
+        "boarded": "2",
+        "alighted": "2",
+        "remaining_waiting": "0"
+      },
+      {
+        "stop_index": "2",
+        "node": "21",
+        "boarded": "0",
+        "alighted": "2",
+        "remaining_waiting": "0"
+      }
+    ],
+    "route_timing": {
+      "elapsed_ticks": "6",
+      "traveling_ticks": "4",
+      "dwelling_ticks": "2",
+      "completion_tick": "6"
+    }
   }
 }
