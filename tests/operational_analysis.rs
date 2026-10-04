@@ -89,6 +89,32 @@ fn assert_trace_error(trace: &RailTrace, error: AnalysisError) {
 }
 
 #[test]
+fn analyze_matches_individual_summaries_for_empty_zero_and_unserved_demand() {
+    for demands in [
+        vec![],
+        vec![Demand::new(NodeId(8), NodeId(3), 0)],
+        vec![Demand::new(NodeId(3), NodeId(8), 2)],
+    ] {
+        let mut trace = completed_trace(&demands, 6);
+
+        for snapshot in &mut trace.snapshots {
+            snapshot.tick += u64::MAX - 2;
+        }
+
+        assert_eq!(
+            analyze(&trace),
+            Ok(OperationalAnalysis {
+                passenger_outcomes: PassengerOutcomes::from_trace(&trace).unwrap(),
+                passenger_times: PassengerTimes::from_trace(&trace).unwrap(),
+                vehicle_occupancy: VehicleOccupancy::from_trace(&trace).unwrap(),
+                stops: StopActivity::from_trace(&trace).unwrap(),
+                route_timing: RouteTiming::from_trace(&trace).unwrap(),
+            })
+        );
+    }
+}
+
+#[test]
 fn route_timing_counts_initial_and_intermediate_dwell_without_final_dwell() {
     let mut network = Network::new();
     let outbound = network
