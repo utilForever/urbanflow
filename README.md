@@ -231,7 +231,7 @@ Read [AGENTS.md](AGENTS.md) for repository rules and validation commands, and [A
 cargo doc --no-deps --open
 ```
 
-`cargo test --test rail_viewer fixed_route_service_reaches_the_viewer_end_to_end` checks one public-API Rail service from configuration through completion and HTML generation. It asserts every recorded position and passenger count, trace termination, the full embedded data against a fixed fixture, and playback control presence. It also runs as part of `cargo test --all`.
+`cargo test --test rail_viewer fixed_route_service_reaches_the_viewer_end_to_end` checks one public-API Rail service from configuration through completion, operational analysis, and HTML generation. It asserts every recorded position and passenger count, trace termination, the exact `OperationalAnalysis` across all five summaries, the full embedded data against a fixed fixture, and playback control presence. The scenario serves four of six passengers over four travel and two dwell ticks, including boarding and alighting at the middle stop. It also checks that all analysis entry points and the viewer reject an inconsistent vehicle load with the same typed error, without changing the trace. It runs as part of `cargo test --all`.
 
 For the viewer's browser interaction tests, run `python3 -m http.server 8121 --bind 127.0.0.1` from the repository root and open [the playback test page](http://127.0.0.1:8121/tests/rail_viewer_playback.html). It checks playback and status-panel synchronization, final analysis display against the Rust-verified fixture, and narrow-screen layout using the real viewer template, DOM controls, and SVG geometry with a controlled animation clock. This separate browser check requires no frontend dependencies and is not run by `cargo test`.
 
