@@ -1043,6 +1043,64 @@ fn passenger_times_reject_invalid_recordings_without_mutation() {
 }
 
 #[test]
+fn analyses_check_every_passenger_record_and_sum_onboard_without_wrapping() {
+    let trace = completed_trace(
+        &[
+            Demand::new(NodeId(8), NodeId(3), 2),
+            Demand::new(NodeId(8), NodeId(3), 3),
+        ],
+        6,
+    );
+
+    for snapshot_index in 0..trace.snapshots.len() {
+        let mut invalid = trace.clone();
+        invalid.snapshots[snapshot_index].passengers.swap(0, 1);
+
+        assert_trace_error(
+            &invalid,
+            AnalysisError::InconsistentDemands {
+                // Ordered demands are compared against the final snapshot.
+                snapshot_index: if snapshot_index == 2 {
+                    0
+                } else {
+                    snapshot_index
+                },
+            },
+        );
+    }
+
+    for snapshot_index in [0, 1] {
+        for extra in [false, true] {
+            let mut invalid = trace.clone();
+            let record = &mut invalid.snapshots[snapshot_index].passengers[1];
+
+            if extra {
+                record.unserved = u32::MAX;
+            } else if snapshot_index == 0 {
+                record.waiting -= 1;
+            } else {
+                record.onboard -= 1;
+            }
+
+            assert_trace_error(
+                &invalid,
+                AnalysisError::InvalidPassengerCounts { demand_index: 1 },
+            );
+        }
+    }
+
+    let mut invalid = completed_trace(&[Demand::new(NodeId(8), NodeId(3), u32::MAX); 2], u32::MAX);
+    invalid.snapshots[1].passengers[1].waiting = 0;
+    invalid.snapshots[1].passengers[1].onboard = u32::MAX;
+    invalid.snapshots[1].occupancy = u32::MAX - 1; // Wrapped sum would match.
+
+    assert_trace_error(
+        &invalid,
+        AnalysisError::InvalidOccupancy { snapshot_index: 1 },
+    );
+}
+
+#[test]
 fn passenger_times_reject_tick_gaps_before_accumulating_time() {
     let mut waiting_product = completed_trace(&[Demand::new(NodeId(3), NodeId(8), 2)], 6);
     waiting_product.snapshots[1].tick = u64::MAX - 1;
@@ -1244,6 +1302,14 @@ fn vehicle_occupancy_rejects_invalid_recordings_without_mutation() {
         invalid.snapshots[snapshot_index].occupancy = 7;
 
         cases.push((invalid, AnalysisError::InvalidOccupancy { snapshot_index }));
+
+        // Mismatches in both directions remain invalid even within capacity.
+        for occupancy in [1, 3] {
+            let mut invalid = trace.clone();
+            invalid.snapshots[snapshot_index].occupancy = occupancy;
+
+            cases.push((invalid, AnalysisError::InvalidOccupancy { snapshot_index }));
+        }
     }
 
     for (invalid, error) in cases {
