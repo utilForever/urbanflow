@@ -531,6 +531,10 @@
             stop.remaining_waiting,
           ]),
         );
+      } else if (data.trace.completed) {
+        document.getElementById("analysis-help").textContent =
+          "Analysis is unavailable because this recording omits the initial service state. " +
+          "Recorded snapshots remain available for playback and inspection.";
       }
       const frames = data.trace.snapshots;
       const nodes = new Map();

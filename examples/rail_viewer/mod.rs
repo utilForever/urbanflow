@@ -48,13 +48,20 @@ pub fn scenario() -> (World, RailTrace) {
 /// only numbers and enum labels, so no caller-supplied text needs escaping.
 /// IDs and u64 values are strings to preserve precision in JavaScript; per-demand
 /// counts fit exactly in JavaScript numbers. Undefined analysis values use null.
-/// Partial traces have no analysis. Completed traces must satisfy `analysis::analyze`;
-/// its errors are returned before producing HTML. All metrics come from the core.
+/// Partial traces and completed traces missing their initial service state have
+/// no analysis, but retain their snapshots for playback and inspection. Other
+/// `analysis::analyze` errors are returned before producing HTML.
+/// All metrics come from the core.
 pub fn render(world: &World, trace: &RailTrace) -> Result<String, AnalysisError> {
-    let analysis = trace
+    let analysis = match trace
         .completed
         .then(|| analysis::analyze(trace))
-        .transpose()?;
+        .transpose()
+    {
+        Ok(analysis) => analysis,
+        Err(AnalysisError::MissingInitialState) => None,
+        Err(error) => return Err(error),
+    };
     let mut data = String::from("{\"nodes\":[");
 
     for (index, node) in world.nodes.iter().enumerate() {

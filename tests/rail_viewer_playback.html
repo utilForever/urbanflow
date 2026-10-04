@@ -473,6 +473,32 @@
         },
       ],
       [
+        "resumed completed recordings retain playback without final analysis",
+        async () => {
+          const v = await viewer(snapshots.slice(1), true);
+          assert(
+            v.get("analysis-summary").hidden,
+            "No summary without initial history",
+          );
+          assert(
+            v
+              .get("analysis-help")
+              .textContent.includes("omits the initial service state"),
+            "Explains missing initial history",
+          );
+          displays(v, "trace-status", "Complete trace");
+          status(v, 1);
+          assert(!v.get("play").disabled, "Recorded intervals can still play");
+          v.click("play");
+          v.advance(20000);
+          status(v, 5);
+          v.change("snapshot", 2);
+          status(v, 3);
+          v.click("reset");
+          status(v, 1);
+        },
+      ],
+      [
         "empty passenger lists display zero totals",
         async () => {
           const v = await viewer([{ ...snapshots[0], passengers: [] }], false);
@@ -514,6 +540,18 @@
             );
             if (frames.length) {
               status(v, frames[0] === snapshots[0] ? 0 : 5);
+              if (frames[0].position.kind === "Complete") {
+                assert(
+                  v.get("analysis-summary").hidden,
+                  "No completion-only summary",
+                );
+                assert(
+                  v
+                    .get("analysis-help")
+                    .textContent.includes("omits the initial service state"),
+                  "Completion-only recordings explain missing initial history",
+                );
+              }
             } else {
               displays(v, "vehicle-state", "No snapshots recorded");
               for (const id of [

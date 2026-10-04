@@ -288,6 +288,55 @@ fn viewer_preserves_undefined_analysis_and_repeated_stop_visits() {
 }
 
 #[test]
+fn viewer_preserves_resumed_and_completion_only_recordings_without_analysis() {
+    let mut network = Network::new();
+    let edge = network
+        .add_edge(NodeId(7), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+    let mut vehicle =
+        RailVehicle::new(RailRoute::new(&network, vec![edge]).unwrap(), 2, 2, 1).unwrap();
+    let world = World {
+        nodes: [7, 3].map(|id| Node { id: NodeId(id) }).to_vec(),
+        network,
+    };
+    let mut clock = SimulationClock::default();
+    let mut passengers = RailPassengers::new(&[Demand::new(NodeId(7), NodeId(3), 3)]);
+
+    vehicle.advance(&mut clock, &mut passengers).unwrap();
+
+    for expected_ticks in [&[1, 2, 3][..], &[3][..]] {
+        let trace = vehicle
+            .record_trace(&mut clock, &mut passengers, 3)
+            .unwrap();
+
+        assert!(trace.completed);
+
+        let before = trace.clone();
+        let html = rail_viewer::render(&world, &trace).unwrap();
+        let data = embedded_data(&html);
+
+        assert_eq!(trace, before);
+        assert!(data.contains(r#""completed":true"#));
+        assert!(data.ends_with(r#""analysis":null}"#));
+        assert_eq!(data.matches("\"tick\":").count(), expected_ticks.len());
+
+        for tick in expected_ticks {
+            assert!(data.contains(&format!(r#""tick":"{tick}""#)));
+        }
+
+        assert!(data.contains(r#""waiting":0,"onboard":0,"arrived":2,"unserved":1"#));
+
+        let mut invalid = trace;
+        invalid.snapshots[0].occupancy = 3;
+
+        assert_eq!(
+            rail_viewer::render(&world, &invalid),
+            Err(AnalysisError::InvalidOccupancy { snapshot_index: 0 }),
+        );
+    }
+}
+
+#[test]
 fn viewer_propagates_completed_trace_analysis_errors_without_mutation() {
     let (world, mut trace) = rail_viewer::scenario();
     trace.snapshots[1].occupancy = 0;
