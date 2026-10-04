@@ -1,12 +1,13 @@
 //! Owned operational results for one completed Rail service.
 //!
-//! [`PassengerOutcomes::from_trace`] summarizes final passenger counts with
-//! completion and terminal passenger validation. [`PassengerTimes::from_trace`]
-//! derives passenger-ticks and arrived-passenger means over recorded intervals.
+//! [`PassengerOutcomes::from_trace`] summarizes final passenger counts.
+//! [`PassengerTimes::from_trace`] derives passenger-ticks and arrived-passenger
+//! means over recorded intervals.
 //! [`VehicleOccupancy::from_trace`] derives capacity use over active intervals.
 //! [`StopActivity::from_trace`] summarizes each visit in a full service recording.
 //! [`RouteTiming::from_trace`] breaks active duration into travel and dwell.
-//! Full trace validation and combined analysis are not yet implemented.
+//! All operations share a read-only consistency preflight before calculation.
+//! Combined analysis is not yet implemented.
 //! Public fields permit caller construction without validation.
 //! Unlike [`crate::metrics::Metrics`], these summaries describe a recorded
 //! service, not aggregate network allocation, construction cost, or reward.
@@ -21,6 +22,32 @@
 //! effect at the tick where they first appear in the recording. The terminal
 //! snapshot contributes no interval. Completed-passenger time totals count only
 //! passengers who arrived, excluding time spent waiting by unserved passengers.
+//!
+//! # Trace validation
+//!
+//! Every operation first rejects an empty trace, then requires its completion
+//! flag and a final [`RailPosition::Complete`]. Final passenger records must have
+//! no waiting or onboard passengers and conserve each demand's amount.
+//! Snapshots are then checked in recorded order for:
+//!
+//! - Strictly increasing ticks exactly one apart, with any initial tick.
+//! - Positive capacity, constant throughout the recording.
+//! - Identical ordered demands compared with the final snapshot, and conserved
+//!   waiting + onboard + arrived + unserved counts for every record, including
+//!   duplicates and zero amounts.
+//! - Forward lifecycle transitions: waiting cannot increase, arrived and
+//!   unserved cannot decrease, arrivals come from previously onboard passengers,
+//!   and new unserved counts appear only in the final snapshot.
+//! - Occupancy equal to the checked sum of onboard counts and within capacity.
+//!   Completed positions cannot retain waiting or onboard passengers.
+//!
+//! Failures return [`AnalysisError`] without mutating the trace or returning
+//! partial results. Indices are zero-based; interval errors identify the later
+//! snapshot. Recordings starting during service or containing only completion
+//! remain valid, except that [`StopActivity::from_trace`] requires full history.
+//! Detailed movement timing, boarding eligibility, and agreement with an external
+//! route or network are outside the shared preflight; stop-sequence checks remain
+//! specific to [`StopActivity::from_trace`].
 
 use crate::rail::{RailPosition, RailSnapshot, RailTrace};
 use crate::world::NodeId;
@@ -37,7 +64,7 @@ pub enum AnalysisError {
     EmptyTrace,
     /// The trace is not marked completed or its final position is not complete.
     IncompleteTrace,
-    /// A final passenger record still has waiting or onboard passengers.
+    /// A completed position still has waiting or onboard passengers.
     UnfinishedPassengers { demand_index: usize },
     /// A record's lifecycle counts do not sum to its demand amount.
     InvalidPassengerCounts { demand_index: usize },
@@ -56,11 +83,11 @@ pub enum AnalysisError {
     TimeOverflow,
     /// Capacity is zero or differs from the first snapshot's capacity.
     InvalidCapacity { snapshot_index: usize },
-    /// Recorded occupancy exceeds the configured capacity.
+    /// Occupancy exceeds capacity or differs from the sum of onboard passengers.
     InvalidOccupancy { snapshot_index: usize },
     /// Stop activity requires stop zero with all passengers still waiting.
     MissingInitialState,
-    /// Stop activity requires every tick; this snapshot skips one or more ticks.
+    /// This snapshot skips one or more ticks.
     NonContiguousTicks { snapshot_index: usize },
     /// Positions cannot identify consecutive route visits and their transitions.
     InvalidStopSequence { snapshot_index: usize },
@@ -102,7 +129,7 @@ impl fmt::Display for AnalysisError {
             ),
             Self::InvalidOccupancy { snapshot_index } => write!(
                 formatter,
-                "snapshot {snapshot_index} has occupancy exceeding vehicle capacity"
+                "snapshot {snapshot_index} has occupancy exceeding capacity or differing from onboard passengers"
             ),
             Self::MissingInitialState => {
                 formatter.write_str("the trace lacks the initial stop with all passengers waiting")
@@ -137,16 +164,30 @@ fn validate_trace(trace: &RailTrace) -> Result<&RailSnapshot, AnalysisError> {
         }
     }
 
-    Ok(final_snapshot)
-}
-
-fn validate_passenger_records(trace: &RailTrace) -> Result<(), AnalysisError> {
-    let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
+    let capacity = trace.snapshots[0].capacity;
 
     for (snapshot_index, snapshot) in trace.snapshots.iter().enumerate() {
+        if snapshot_index > 0 {
+            let ticks = snapshot
+                .tick
+                .checked_sub(trace.snapshots[snapshot_index - 1].tick)
+                .filter(|&ticks| ticks > 0)
+                .ok_or(AnalysisError::InvalidTickOrder { snapshot_index })?;
+
+            if ticks != 1 {
+                return Err(AnalysisError::NonContiguousTicks { snapshot_index });
+            }
+        }
+
+        if snapshot.capacity == 0 || snapshot.capacity != capacity {
+            return Err(AnalysisError::InvalidCapacity { snapshot_index });
+        }
+
         if snapshot.passengers.len() != final_snapshot.passengers.len() {
             return Err(AnalysisError::InconsistentDemands { snapshot_index });
         }
+
+        let mut onboard = 0u64;
 
         for (demand_index, (record, final_record)) in snapshot
             .passengers
@@ -167,10 +208,45 @@ fn validate_passenger_records(trace: &RailTrace) -> Result<(), AnalysisError> {
             {
                 return Err(AnalysisError::InvalidPassengerCounts { demand_index });
             }
+
+            if matches!(snapshot.position, RailPosition::Complete { .. })
+                && (record.waiting != 0 || record.onboard != 0)
+            {
+                return Err(AnalysisError::UnfinishedPassengers { demand_index });
+            }
+
+            if snapshot_index > 0 {
+                let previous = &trace.snapshots[snapshot_index - 1].passengers[demand_index];
+                let invalid_transition = AnalysisError::InvalidPassengerTransition {
+                    snapshot_index,
+                    demand_index,
+                };
+                let arrivals = record
+                    .arrived
+                    .checked_sub(previous.arrived)
+                    .ok_or(invalid_transition)?;
+
+                if record.waiting > previous.waiting
+                    || arrivals > previous.onboard
+                    || record.unserved < previous.unserved
+                    || (record.unserved != previous.unserved
+                        && snapshot_index != trace.snapshots.len() - 1)
+                {
+                    return Err(invalid_transition);
+                }
+            }
+
+            onboard = onboard
+                .checked_add(u64::from(record.onboard))
+                .ok_or(AnalysisError::CountOverflow)?;
+        }
+
+        if snapshot.occupancy > capacity || u64::from(snapshot.occupancy) != onboard {
+            return Err(AnalysisError::InvalidOccupancy { snapshot_index });
         }
     }
 
-    Ok(())
+    Ok(final_snapshot)
 }
 
 /// Owned passenger, vehicle, stop, and timing summaries for a completed service.
@@ -212,22 +288,14 @@ impl PassengerOutcomes {
     /// Summarizes the final snapshot without modifying the trace.
     ///
     /// Counts every demand record separately, including duplicates and zero
-    /// amounts, using checked `u64` totals. A completion-only recording is valid;
-    /// earlier snapshots are not inspected. Full tick, occupancy, and lifecycle
-    /// consistency validation across the recording is outside this operation.
+    /// amounts, using checked `u64` totals. A completion-only recording is valid.
     /// `served_share` is `None` for zero requested passengers.
     ///
     /// # Errors
     ///
-    /// Checks for [`AnalysisError::EmptyTrace`] first, then requires both the
-    /// trace's completion flag and a final [`RailPosition::Complete`] position
-    /// or returns [`AnalysisError::IncompleteTrace`]. In final demand order,
-    /// returns [`AnalysisError::UnfinishedPassengers`] for waiting or onboard
-    /// passengers, then [`AnalysisError::InvalidPassengerCounts`] unless arrived
-    /// plus unserved equals the original demand amount. Each error's
-    /// `demand_index` is the zero-based index in the final snapshot. Aggregate
-    /// overflow returns [`AnalysisError::CountOverflow`]; no partial result is
-    /// returned on any error.
+    /// Applies the shared [trace validation](self#trace-validation) first.
+    /// Aggregate overflow returns [`AnalysisError::CountOverflow`]; no partial
+    /// result is returned on any error.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
         let final_snapshot = validate_trace(trace)?;
 
@@ -300,68 +368,24 @@ impl PassengerTimes {
     ///
     /// # Errors
     ///
-    /// Applies [`PassengerOutcomes::from_trace`] validation first. Then requires
-    /// identical ordered demands and conserved counts in every snapshot, returning
-    /// [`AnalysisError::InconsistentDemands`] or [`AnalysisError::InvalidPassengerCounts`].
-    /// Intervals require strictly increasing ticks ([`AnalysisError::InvalidTickOrder`])
-    /// and forward lifecycle transitions ([`AnalysisError::InvalidPassengerTransition`]):
-    /// waiting cannot increase, arrived and unserved cannot decrease, arrivals
-    /// must come from previously onboard passengers, and new unserved counts
-    /// may appear only at completion. Error indices are zero-based; transition
-    /// and tick errors identify the later snapshot.
-    ///
+    /// Applies the shared [trace validation](self#trace-validation) first.
     /// Checked products, totals, and the combined arrived journey total return
     /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
-    /// Tick contiguity, occupancy, capacity, and route-position consistency are
-    /// outside this operation; a gap uses the starting counts for its duration.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
         let outcomes = PassengerOutcomes::from_trace(trace)?;
-
-        validate_passenger_records(trace)?;
-
         let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
         let mut totals = [0u64; 4];
 
-        for (index, pair) in trace.snapshots.windows(2).enumerate() {
+        for pair in trace.snapshots.windows(2) {
             let current = &pair[0];
-            let next = &pair[1];
-            let snapshot_index = index + 1;
-            let ticks = next
-                .tick
-                .checked_sub(current.tick)
-                .filter(|&ticks| ticks > 0)
-                .ok_or(AnalysisError::InvalidTickOrder { snapshot_index })?;
+            let ticks = pair[1].tick - current.tick;
 
             for (demand_index, record) in current.passengers.iter().enumerate() {
-                let next_record = &next.passengers[demand_index];
-                let invalid_transition = AnalysisError::InvalidPassengerTransition {
-                    snapshot_index,
-                    demand_index,
-                };
-                let arrivals = next_record
-                    .arrived
-                    .checked_sub(record.arrived)
-                    .ok_or(invalid_transition)?;
-
-                if next_record.waiting > record.waiting
-                    || arrivals > record.onboard
-                    || next_record.unserved < record.unserved
-                    || (next_record.unserved != record.unserved
-                        && snapshot_index != trace.snapshots.len() - 1)
-                {
-                    return Err(invalid_transition);
-                }
-
-                let future_arrivals = final_snapshot.passengers[demand_index]
-                    .arrived
-                    .checked_sub(record.arrived)
-                    .ok_or(invalid_transition)?;
+                // Preflight guarantees forward, conserved lifecycle counts.
+                let future_arrivals =
+                    final_snapshot.passengers[demand_index].arrived - record.arrived;
                 let arrived_onboard = record.onboard.min(future_arrivals);
                 let arrived_waiting = future_arrivals - arrived_onboard;
-
-                if arrived_waiting > record.waiting {
-                    return Err(invalid_transition);
-                }
 
                 for (total, count) in totals.iter_mut().zip([
                     record.waiting,
@@ -441,45 +465,20 @@ impl VehicleOccupancy {
     ///
     /// # Errors
     ///
-    /// Applies [`PassengerOutcomes::from_trace`] validation first. Then checks
-    /// every snapshot in order for positive capacity matching the first snapshot
-    /// ([`AnalysisError::InvalidCapacity`]) and occupancy within capacity
-    /// ([`AnalysisError::InvalidOccupancy`]). Intervals require strictly increasing
-    /// ticks ([`AnalysisError::InvalidTickOrder`], identifying the later snapshot).
-    /// Indices are zero-based. Checked passenger-tick products and totals return
+    /// Applies the shared [trace validation](self#trace-validation) first.
+    /// Checked passenger-tick products and totals return
     /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
-    ///
-    /// Tick contiguity, occupancy agreement with passenger records, lifecycle
-    /// transitions, and route-position consistency are outside this operation.
-    /// Gaps use the starting occupancy for their whole duration.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
-        PassengerOutcomes::from_trace(trace)?;
+        validate_trace(trace)?;
 
         let capacity = trace.snapshots[0].capacity;
-
-        for (snapshot_index, snapshot) in trace.snapshots.iter().enumerate() {
-            if snapshot.capacity == 0 || snapshot.capacity != capacity {
-                return Err(AnalysisError::InvalidCapacity { snapshot_index });
-            }
-
-            if snapshot.occupancy > capacity {
-                return Err(AnalysisError::InvalidOccupancy { snapshot_index });
-            }
-        }
-
         let mut active_ticks = 0u64;
         let mut max_occupancy = 0;
         let mut occupied_passenger_ticks = 0u64;
 
-        for (index, pair) in trace.snapshots.windows(2).enumerate() {
+        for pair in trace.snapshots.windows(2) {
             let current = &pair[0];
-            let ticks = pair[1]
-                .tick
-                .checked_sub(current.tick)
-                .filter(|&ticks| ticks > 0)
-                .ok_or(AnalysisError::InvalidTickOrder {
-                    snapshot_index: index + 1,
-                })?;
+            let ticks = pair[1].tick - current.tick;
 
             if matches!(current.position, RailPosition::Complete { .. }) {
                 continue;
@@ -548,13 +547,10 @@ impl StopActivity {
     ///
     /// # Errors
     ///
-    /// Applies [`PassengerOutcomes::from_trace`] validation first, then checks
-    /// ordered demands and count conservation as for [`PassengerTimes::from_trace`].
+    /// Applies the shared [trace validation](self#trace-validation) first.
     /// A missing initial stop or non-waiting initial passenger state returns
-    /// [`AnalysisError::MissingInitialState`]. Each interval requires increasing
-    /// ticks ([`AnalysisError::InvalidTickOrder`]) exactly one apart
-    /// ([`AnalysisError::NonContiguousTicks`]), followed by consistent stop/edge
-    /// indices and nodes ([`AnalysisError::InvalidStopSequence`]).
+    /// [`AnalysisError::MissingInitialState`]. Each interval requires consistent
+    /// stop/edge indices and nodes ([`AnalysisError::InvalidStopSequence`]).
     ///
     /// Counts may change only at stop processing: waiting decreases at its
     /// origin, arrivals increase at their destination from previously onboard
@@ -562,11 +558,10 @@ impl StopActivity {
     /// return [`AnalysisError::InvalidPassengerTransition`]. Error indices are
     /// zero-based; interval errors identify the later snapshot. Checked totals
     /// return [`AnalysisError::CountOverflow`], never a partial result.
-    /// Capacity, occupancy, travel/dwell durations, boarding eligibility, and
-    /// agreement with an external network are outside this calculation.
+    /// Travel/dwell durations, boarding eligibility, and agreement with an
+    /// external network are outside this calculation.
     pub fn from_trace(trace: &RailTrace) -> Result<Vec<Self>, AnalysisError> {
-        PassengerOutcomes::from_trace(trace)?;
-        validate_passenger_records(trace)?;
+        validate_trace(trace)?;
 
         let initial = &trace.snapshots[0];
 
@@ -585,16 +580,6 @@ impl StopActivity {
             let current = &pair[0];
             let next = &pair[1];
             let snapshot_index = index + 1;
-            let ticks = next
-                .tick
-                .checked_sub(current.tick)
-                .filter(|&ticks| ticks > 0)
-                .ok_or(AnalysisError::InvalidTickOrder { snapshot_index })?;
-
-            if ticks != 1 {
-                return Err(AnalysisError::NonContiguousTicks { snapshot_index });
-            }
-
             let invalid_stop = AnalysisError::InvalidStopSequence { snapshot_index };
             let visit = match (current.position, next.position) {
                 (
@@ -680,23 +665,15 @@ impl StopActivity {
                     snapshot_index,
                     demand_index,
                 };
-                let alighted = next_record
-                    .arrived
-                    .checked_sub(record.arrived)
-                    .filter(|&count| count <= record.onboard)
-                    .ok_or(invalid_transition)?;
+                let alighted = next_record.arrived - record.arrived;
                 let boarded = if complete {
                     0
                 } else {
-                    record
-                        .waiting
-                        .checked_sub(next_record.waiting)
-                        .ok_or(invalid_transition)?
+                    record.waiting - next_record.waiting
                 };
 
                 if (boarded != 0 && record.demand.origin != node)
                     || (alighted != 0 && record.demand.destination != node)
-                    || (!complete && next_record.unserved != record.unserved)
                 {
                     return Err(invalid_transition);
                 }
@@ -761,40 +738,25 @@ impl RouteTiming {
     /// final-stop dwell. The completion tick is the final snapshot's absolute tick.
     ///
     /// Only recorded intervals contribute; recording during service does not
-    /// reconstruct earlier durations. Gaps use the starting position for their
-    /// entire duration. A completion-only recording has zero durations.
+    /// reconstruct earlier durations. A completion-only recording has zero
+    /// durations.
     ///
     /// # Errors
     ///
-    /// Applies [`PassengerOutcomes::from_trace`] validation first. Every interval,
-    /// including completed intervals, then requires strictly increasing ticks
-    /// ([`AnalysisError::InvalidTickOrder`], identifying the later snapshot by its
-    /// zero-based index). Checked duration totals return
+    /// Applies the shared [trace validation](self#trace-validation) first.
+    /// Checked duration totals return
     /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
-    /// Tick contiguity, capacity, occupancy, passenger lifecycle transitions,
-    /// and route-position consistency are outside this operation.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
-        PassengerOutcomes::from_trace(trace)?;
-
+        let final_snapshot = validate_trace(trace)?;
         let mut timing = Self {
             elapsed_ticks: 0,
             traveling_ticks: 0,
             dwelling_ticks: 0,
-            completion_tick: trace
-                .snapshots
-                .last()
-                .ok_or(AnalysisError::EmptyTrace)?
-                .tick,
+            completion_tick: final_snapshot.tick,
         };
 
-        for (index, pair) in trace.snapshots.windows(2).enumerate() {
-            let ticks = pair[1]
-                .tick
-                .checked_sub(pair[0].tick)
-                .filter(|&ticks| ticks > 0)
-                .ok_or(AnalysisError::InvalidTickOrder {
-                    snapshot_index: index + 1,
-                })?;
+        for pair in trace.snapshots.windows(2) {
+            let ticks = pair[1].tick - pair[0].tick;
             let duration = match pair[0].position {
                 RailPosition::AtStop { .. } => &mut timing.dwelling_ticks,
                 RailPosition::Traveling { .. } => &mut timing.traveling_ticks,

@@ -76,6 +76,17 @@ fn completed_trace(demands: &[Demand], capacity: u32) -> RailTrace {
         .unwrap()
 }
 
+fn assert_trace_error(trace: &RailTrace, error: AnalysisError) {
+    let before = trace.clone();
+
+    assert_eq!(PassengerOutcomes::from_trace(trace), Err(error));
+    assert_eq!(PassengerTimes::from_trace(trace), Err(error));
+    assert_eq!(VehicleOccupancy::from_trace(trace), Err(error));
+    assert_eq!(StopActivity::from_trace(trace), Err(error));
+    assert_eq!(RouteTiming::from_trace(trace), Err(error));
+    assert_eq!(*trace, before);
+}
+
 #[test]
 fn route_timing_counts_initial_and_intermediate_dwell_without_final_dwell() {
     let mut network = Network::new();
@@ -114,29 +125,29 @@ fn route_timing_counts_initial_and_intermediate_dwell_without_final_dwell() {
 fn route_timing_measures_only_recorded_active_intervals() {
     let mut trace = completed_trace(&[], 6);
 
-    for (snapshot, tick) in trace.snapshots.iter_mut().zip([100, 103, 108]) {
+    for (snapshot, tick) in trace.snapshots.iter_mut().zip([100, 101, 102]) {
         snapshot.tick = tick;
     }
 
     let expected = RouteTiming {
-        elapsed_ticks: 8,
-        traveling_ticks: 5,
-        dwelling_ticks: 3,
-        completion_tick: 108,
+        elapsed_ticks: 2,
+        traveling_ticks: 1,
+        dwelling_ticks: 1,
+        completion_tick: 102,
     };
 
     assert_eq!(RouteTiming::from_trace(&trace), Ok(expected));
 
     // A caller-added completed interval contributes no travel or dwell time.
     let mut later = trace.snapshots.last().unwrap().clone();
-    later.tick = 118;
+    later.tick = 103;
 
     trace.snapshots.push(later);
 
     assert_eq!(
         RouteTiming::from_trace(&trace),
         Ok(RouteTiming {
-            completion_tick: 118,
+            completion_tick: 103,
             ..expected
         })
     );
@@ -147,10 +158,10 @@ fn route_timing_measures_only_recorded_active_intervals() {
     assert_eq!(
         RouteTiming::from_trace(&trace),
         Ok(RouteTiming {
-            elapsed_ticks: 5,
-            traveling_ticks: 5,
+            elapsed_ticks: 1,
+            traveling_ticks: 1,
             dwelling_ticks: 0,
-            completion_tick: 108,
+            completion_tick: 102,
         })
     );
 
@@ -162,24 +173,19 @@ fn route_timing_measures_only_recorded_active_intervals() {
             elapsed_ticks: 0,
             traveling_ticks: 0,
             dwelling_ticks: 0,
-            completion_tick: 108,
+            completion_tick: 102,
         })
     );
 }
 
 #[test]
-fn route_timing_preserves_full_width_tick_durations() {
+fn route_timing_preserves_full_width_completion_ticks() {
     let mut trace = completed_trace(&[], 6);
     trace.snapshots[2].tick = u64::MAX;
 
-    assert_eq!(
-        RouteTiming::from_trace(&trace),
-        Ok(RouteTiming {
-            elapsed_ticks: u64::MAX,
-            traveling_ticks: u64::MAX - 1,
-            dwelling_ticks: 1,
-            completion_tick: u64::MAX,
-        })
+    assert_trace_error(
+        &trace,
+        AnalysisError::NonContiguousTicks { snapshot_index: 2 },
     );
 
     trace.snapshots[0].tick = u64::MAX - 2;
@@ -197,7 +203,7 @@ fn route_timing_preserves_full_width_tick_durations() {
 }
 
 #[test]
-fn route_timing_rejects_invalid_recordings_without_mutation() {
+fn analyses_reject_invalid_recordings_without_mutation() {
     let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
     let mut cases = vec![(
         RailTrace {
@@ -217,16 +223,25 @@ fn route_timing_rejects_invalid_recordings_without_mutation() {
 
     cases.push((invalid, AnalysisError::IncompleteTrace));
 
-    for tick in [0, 2, 3] {
+    for (snapshot_index, tick, error) in [
+        (1, 0, AnalysisError::InvalidTickOrder { snapshot_index: 1 }),
+        (2, 0, AnalysisError::InvalidTickOrder { snapshot_index: 2 }),
+        (2, 1, AnalysisError::InvalidTickOrder { snapshot_index: 2 }),
+        (
+            1,
+            3,
+            AnalysisError::NonContiguousTicks { snapshot_index: 1 },
+        ),
+        (
+            2,
+            u64::MAX,
+            AnalysisError::NonContiguousTicks { snapshot_index: 2 },
+        ),
+    ] {
         let mut invalid = trace.clone();
-        invalid.snapshots[1].tick = tick;
+        invalid.snapshots[snapshot_index].tick = tick;
 
-        cases.push((
-            invalid,
-            AnalysisError::InvalidTickOrder {
-                snapshot_index: if tick == 0 { 1 } else { 2 },
-            },
-        ));
+        cases.push((invalid, error));
     }
 
     let mut invalid = trace.clone();
@@ -246,9 +261,7 @@ fn route_timing_rejects_invalid_recordings_without_mutation() {
     ));
 
     for (invalid, error) in cases {
-        let before = invalid.clone();
-        assert_eq!(RouteTiming::from_trace(&invalid), Err(error));
-        assert_eq!(invalid, before);
+        assert_trace_error(&invalid, error);
     }
 }
 
@@ -398,6 +411,7 @@ fn stop_activity_requires_full_recording_and_consistent_stop_and_passenger_data(
     let mut invalid = trace.clone();
     invalid.snapshots[0].passengers[0].waiting = 1;
     invalid.snapshots[0].passengers[0].onboard = 1;
+    invalid.snapshots[0].occupancy = 1;
 
     cases.push((invalid, AnalysisError::MissingInitialState));
 
@@ -943,18 +957,6 @@ fn passenger_times_reject_invalid_recordings_without_mutation() {
 
     cases.push((incomplete, AnalysisError::IncompleteTrace));
 
-    for tick in [0, 2, 3] {
-        let mut invalid = trace.clone();
-        invalid.snapshots[1].tick = tick;
-
-        cases.push((
-            invalid,
-            AnalysisError::InvalidTickOrder {
-                snapshot_index: if tick == 0 { 1 } else { 2 },
-            },
-        ));
-    }
-
     for missing in [false, true] {
         let mut invalid = trace.clone();
 
@@ -999,7 +1001,9 @@ fn passenger_times_reject_invalid_recordings_without_mutation() {
         record.arrived = arrived;
         record.unserved = unserved;
 
+        invalid.snapshots[0].occupancy = onboard;
         invalid.snapshots[1].passengers[0] = trace.snapshots[0].passengers[0];
+        invalid.snapshots[1].occupancy = 0;
 
         cases.push((
             invalid,
@@ -1034,14 +1038,12 @@ fn passenger_times_reject_invalid_recordings_without_mutation() {
     ));
 
     for (invalid, error) in cases {
-        let before = invalid.clone();
-        assert_eq!(PassengerTimes::from_trace(&invalid), Err(error));
-        assert_eq!(invalid, before);
+        assert_trace_error(&invalid, error);
     }
 }
 
 #[test]
-fn passenger_times_check_products_totals_and_combined_journey_overflow() {
+fn passenger_times_reject_tick_gaps_before_accumulating_time() {
     let mut waiting_product = completed_trace(&[Demand::new(NodeId(3), NodeId(8), 2)], 6);
     waiting_product.snapshots[1].tick = u64::MAX - 1;
     waiting_product.snapshots[2].tick = u64::MAX;
@@ -1057,17 +1059,17 @@ fn passenger_times_check_products_totals_and_combined_journey_overflow() {
     journey_sum.snapshots[1].tick = 1 << 62;
     journey_sum.snapshots[2].tick = 1 << 63;
 
-    for trace in [waiting_product, onboard_product, waiting_sum, journey_sum] {
-        let before = trace.clone();
-
-        assert_eq!(
-            PassengerTimes::from_trace(&trace),
-            Err(AnalysisError::TimeOverflow)
-        );
-        assert_eq!(trace, before);
+    for (trace, snapshot_index) in [
+        (waiting_product, 1),
+        (onboard_product, 2),
+        (waiting_sum, 1),
+        (journey_sum, 1),
+    ] {
+        assert_trace_error(&trace, AnalysisError::NonContiguousTicks { snapshot_index });
     }
 
     let mut boundary = completed_trace(&[Demand::new(NodeId(3), NodeId(8), 1)], 6);
+    boundary.snapshots[0].tick = u64::MAX - 2;
     boundary.snapshots[1].tick = u64::MAX - 1;
     boundary.snapshots[2].tick = u64::MAX;
 
@@ -1075,7 +1077,7 @@ fn passenger_times_check_products_totals_and_combined_journey_overflow() {
         PassengerTimes::from_trace(&boundary)
             .unwrap()
             .waiting_passenger_ticks,
-        u64::MAX
+        2
     );
 }
 
@@ -1117,15 +1119,20 @@ fn vehicle_occupancy_weights_travel_and_dwell_without_mutating_the_trace() {
     assert_eq!(VehicleOccupancy::from_trace(&trace), Ok(expected));
     assert_eq!(trace, before);
 
-    // Uneven intervals retain the same piecewise-constant occupancy.
-    trace
-        .snapshots
-        .retain(|frame| [0, 1, 4, 8].contains(&frame.tick));
-
+    // Moving the initial tick preserves the same occupancy intervals.
     for frame in &mut trace.snapshots {
         frame.tick += 100;
     }
     assert_eq!(VehicleOccupancy::from_trace(&trace), Ok(expected));
+
+    trace
+        .snapshots
+        .retain(|frame| [100, 101, 104, 108].contains(&frame.tick));
+
+    assert_trace_error(
+        &trace,
+        AnalysisError::NonContiguousTicks { snapshot_index: 2 },
+    );
 }
 
 #[test]
@@ -1175,13 +1182,16 @@ fn vehicle_occupancy_distinguishes_empty_service_from_no_active_intervals() {
     assert_eq!(VehicleOccupancy::from_trace(&trace), Ok(expected));
 
     let mut later = trace.snapshots[0].clone();
-    later.tick += 10;
+    later.tick += 1;
 
-    // Even a caller-supplied load after completion cannot affect the maximum.
+    // A caller-supplied load after completion must match onboard passengers.
     trace.snapshots[0].occupancy = 6;
     trace.snapshots.push(later);
 
-    assert_eq!(VehicleOccupancy::from_trace(&trace), Ok(expected));
+    assert_trace_error(
+        &trace,
+        AnalysisError::InvalidOccupancy { snapshot_index: 0 },
+    );
 }
 
 #[test]
@@ -1213,18 +1223,6 @@ fn vehicle_occupancy_rejects_invalid_recordings_without_mutation() {
         AnalysisError::UnfinishedPassengers { demand_index: 0 },
     ));
 
-    for tick in [0, 2, 3] {
-        let mut invalid = trace.clone();
-        invalid.snapshots[1].tick = tick;
-
-        cases.push((
-            invalid,
-            AnalysisError::InvalidTickOrder {
-                snapshot_index: if tick == 0 { 1 } else { 2 },
-            },
-        ));
-    }
-
     for snapshot_index in 0..trace.snapshots.len() {
         for capacity in [0, 7] {
             let mut invalid = trace.clone();
@@ -1249,14 +1247,12 @@ fn vehicle_occupancy_rejects_invalid_recordings_without_mutation() {
     }
 
     for (invalid, error) in cases {
-        let before = invalid.clone();
-        assert_eq!(VehicleOccupancy::from_trace(&invalid), Err(error));
-        assert_eq!(invalid, before);
+        assert_trace_error(&invalid, error);
     }
 }
 
 #[test]
-fn vehicle_occupancy_checks_passenger_tick_overflow() {
+fn vehicle_occupancy_rejects_tick_gaps_before_accumulating_time() {
     let mut product = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
     product.snapshots[2].tick = u64::MAX;
 
@@ -1269,18 +1265,13 @@ fn vehicle_occupancy_checks_passenger_tick_overflow() {
     sum.snapshots[0] = initial;
     sum.snapshots[2].tick = 1 << 63;
 
-    for trace in [product, sum] {
-        let before = trace.clone();
-        assert_eq!(
-            VehicleOccupancy::from_trace(&trace),
-            Err(AnalysisError::TimeOverflow)
-        );
-        assert_eq!(trace, before);
+    for (trace, snapshot_index) in [(product, 2), (sum, 1)] {
+        assert_trace_error(&trace, AnalysisError::NonContiguousTicks { snapshot_index });
     }
 
     let mut boundary = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 1)], 1);
     boundary.snapshots.remove(0);
-    boundary.snapshots[0].tick = 0;
+    boundary.snapshots[0].tick = u64::MAX - 1;
     boundary.snapshots[1].tick = u64::MAX;
 
     assert_eq!(
@@ -1288,7 +1279,7 @@ fn vehicle_occupancy_checks_passenger_tick_overflow() {
         Ok(VehicleOccupancy {
             capacity: 1,
             max_occupancy: 1,
-            occupied_passenger_ticks: u64::MAX,
+            occupied_passenger_ticks: 1,
             mean_occupancy: Some(1.0),
             max_load_factor: Some(1.0),
             mean_load_factor: Some(1.0),
@@ -1297,10 +1288,10 @@ fn vehicle_occupancy_checks_passenger_tick_overflow() {
 }
 
 #[test]
-fn vehicle_occupancy_keeps_rounded_means_within_recorded_bounds() {
+fn vehicle_occupancy_uses_exact_tick_differences_above_float_precision() {
     let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 3)], 3);
     trace.snapshots.remove(0);
-    trace.snapshots[0].tick = 0;
+    trace.snapshots[0].tick = 9_007_199_254_740_992;
     trace.snapshots[1].tick = 9_007_199_254_740_993;
 
     assert_eq!(
@@ -1308,7 +1299,7 @@ fn vehicle_occupancy_keeps_rounded_means_within_recorded_bounds() {
         Ok(VehicleOccupancy {
             capacity: 3,
             max_occupancy: 3,
-            occupied_passenger_ticks: 27_021_597_764_222_979,
+            occupied_passenger_ticks: 3,
             mean_occupancy: Some(3.0),
             max_load_factor: Some(1.0),
             mean_load_factor: Some(1.0),
