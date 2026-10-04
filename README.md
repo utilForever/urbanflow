@@ -112,58 +112,62 @@ A trace records the initial snapshot and each subsequent tick, up to the supplie
 
 ### Operational Analysis
 
-[`analysis::OperationalAnalysis`](src/analysis.rs) defines owned summaries for passenger outcomes and time, vehicle occupancy, ordered stop visits, and route timing. Counts and passenger-ticks use integers; undefined means and ratios use `None`. Repeated visits to the same node retain separate entries in route order.
+Use [`analysis::analyze(&trace)`](src/analysis.rs) to derive all five summaries in one call, returning `Result<OperationalAnalysis, AnalysisError>`. It validates once, leaves the trace unchanged, and returns owned, deterministic results for the same trace. Record from stop zero with all passengers waiting and include every tick through completion; the initial tick may be nonzero.
 
-Use `analysis::analyze(&trace)` to derive all five summaries in one call. It runs shared validation once, leaves the trace unchanged, and returns `Result<OperationalAnalysis, AnalysisError>`. Because it includes stop activity, the recording must start at stop zero with all passengers waiting and contain every tick through completion; the initial tick may be nonzero. For the Rail trace above:
+This complete example records one Rail edge with capacity 6, one travel tick, one dwell tick, and 10 requested passengers:
 
 ```rust
-let analysis = urbanflow::analysis::analyze(&trace).unwrap();
+use urbanflow::analysis::analyze;
+use urbanflow::demand::Demand;
+use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle};
+use urbanflow::time::SimulationClock;
+use urbanflow::world::{EdgeKind, Network, NodeId};
 
-assert_eq!(analysis.passenger_outcomes.arrived, 6);
-assert_eq!(analysis.passenger_times.mean_journey_ticks, Some(2.0));
-assert_eq!(analysis.vehicle_occupancy.max_occupancy, 6);
-assert_eq!(analysis.stops[0].boarded, 6);
-assert_eq!(analysis.route_timing.elapsed_ticks, 2);
+fn main() {
+    let mut network = Network::new();
+    let edge = network.add_edge(NodeId(0), NodeId(2), EdgeKind::Rail).unwrap();
+    let route = RailRoute::new(&network, vec![edge]).unwrap();
+    let mut vehicle = RailVehicle::new(route, 6, 1, 1).unwrap();
+    let mut clock = SimulationClock::default();
+    let mut passengers = RailPassengers::new(&[Demand::new(NodeId(0), NodeId(2), 10)]);
+
+    let trace = vehicle.record_trace(&mut clock, &mut passengers, 2).unwrap();
+    assert!(trace.completed);
+
+    let analysis = analyze(&trace).unwrap();
+    let outcomes = analysis.passenger_outcomes;
+    assert_eq!((outcomes.requested, outcomes.arrived, outcomes.unserved), (10, 6, 4));
+    assert_eq!(outcomes.served_share, Some(0.6));
+
+    let times = analysis.passenger_times;
+    assert_eq!(times.waiting_passenger_ticks, 14); // Includes unserved waiting.
+    assert_eq!(times.onboard_passenger_ticks, 6);
+    assert_eq!(times.arrived_waiting_passenger_ticks, 6);
+    assert_eq!(times.arrived_onboard_passenger_ticks, 6);
+    assert_eq!(times.mean_waiting_ticks, Some(1.0));
+    assert_eq!(times.mean_onboard_ticks, Some(1.0));
+    assert_eq!(times.mean_journey_ticks, Some(2.0));
+
+    let occupancy = analysis.vehicle_occupancy;
+    assert_eq!(occupancy.capacity, 6);
+    assert_eq!(occupancy.max_occupancy, 6);
+    assert_eq!(occupancy.occupied_passenger_ticks, 6);
+    assert_eq!(occupancy.mean_occupancy, Some(3.0));
+    assert_eq!(occupancy.max_load_factor, Some(1.0));
+    assert_eq!(occupancy.mean_load_factor, Some(0.5));
+
+    assert_eq!(analysis.stops.len(), 2);
+    assert_eq!((analysis.stops[0].boarded, analysis.stops[0].remaining_waiting), (6, 4));
+    assert_eq!(analysis.stops[1].alighted, 6);
+
+    let timing = analysis.route_timing;
+    assert_eq!(timing.elapsed_ticks, 2);
+    assert_eq!((timing.traveling_ticks, timing.dwelling_ticks), (1, 1));
+    assert_eq!(timing.completion_tick, 2);
+}
 ```
 
 Individual summaries remain available when only part of the analysis is needed.
-
-Use `PassengerOutcomes::from_trace(&trace)` to sum requested, arrived, and unserved passengers from the final snapshot of a completed Rail trace, including duplicate demands. Totals use checked `u64` arithmetic, and `served_share` is `None` when no passengers were requested. For the Rail trace above:
-
-```rust
-use urbanflow::analysis::{
-    PassengerOutcomes, PassengerTimes, RouteTiming, StopActivity, VehicleOccupancy,
-};
-
-let outcomes = PassengerOutcomes::from_trace(&trace).unwrap();
-assert_eq!((outcomes.requested, outcomes.arrived, outcomes.unserved), (10, 6, 4));
-assert_eq!(outcomes.served_share, Some(0.6));
-
-let times = PassengerTimes::from_trace(&trace).unwrap();
-assert_eq!(times.waiting_passenger_ticks, 14); // Includes unserved waiting.
-assert_eq!(times.onboard_passenger_ticks, 6);
-assert_eq!(times.mean_waiting_ticks, Some(1.0));
-assert_eq!(times.mean_onboard_ticks, Some(1.0));
-assert_eq!(times.mean_journey_ticks, Some(2.0));
-
-let occupancy = VehicleOccupancy::from_trace(&trace).unwrap();
-assert_eq!(occupancy.max_occupancy, 6);
-assert_eq!(occupancy.occupied_passenger_ticks, 6);
-assert_eq!(occupancy.mean_occupancy, Some(3.0));
-assert_eq!(occupancy.max_load_factor, Some(1.0));
-assert_eq!(occupancy.mean_load_factor, Some(0.5));
-
-let stops = StopActivity::from_trace(&trace).unwrap();
-assert_eq!(stops.len(), 2);
-assert_eq!((stops[0].boarded, stops[0].remaining_waiting), (6, 4));
-assert_eq!(stops[1].alighted, 6);
-
-let timing = RouteTiming::from_trace(&trace).unwrap();
-assert_eq!(timing.elapsed_ticks, 2);
-assert_eq!(timing.traveling_ticks, 1);
-assert_eq!(timing.dwelling_ticks, 1);
-assert_eq!(timing.completion_tick, 2);
-```
 
 All five operations share a read-only preflight before calculation. It rejects empty or incomplete traces, duplicate/decreasing ticks or missing ticks, changing ordered demands, passenger counts that do not conserve each demand, backward lifecycle transitions, zero or changing capacity, and occupancy that exceeds capacity or differs from summed onboard passengers. Completed positions must have no waiting or onboard passengers. Failures return a typed `AnalysisError` without changing the trace or returning partial results. Passenger outcome, passenger time, vehicle occupancy, and route timing summaries also accept a recording starting during service or containing only the completed snapshot, with any initial tick. `AnalysisError` implements `Display` and `std::error::Error`, so callers returning `Result<_, Box<dyn std::error::Error>>` can propagate failures with `?`.
 
