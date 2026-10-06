@@ -1,5 +1,6 @@
 //! Owned operational results for one completed Rail service.
 //!
+//! [`analyze`] derives all five summaries from a full service recording.
 //! [`PassengerOutcomes::from_trace`] summarizes final passenger counts.
 //! [`PassengerTimes::from_trace`] derives passenger-ticks and arrived-passenger
 //! means over recorded intervals.
@@ -7,7 +8,6 @@
 //! [`StopActivity::from_trace`] summarizes each visit in a full service recording.
 //! [`RouteTiming::from_trace`] breaks active duration into travel and dwell.
 //! All operations share a read-only consistency preflight before calculation.
-//! Combined analysis is not yet implemented.
 //! Public fields permit caller construction without validation.
 //! Unlike [`crate::metrics::Metrics`], these summaries describe a recorded
 //! service, not aggregate network allocation, construction cost, or reward.
@@ -44,10 +44,11 @@
 //! Failures return [`AnalysisError`] without mutating the trace or returning
 //! partial results. Indices are zero-based; interval errors identify the later
 //! snapshot. Recordings starting during service or containing only completion
-//! remain valid, except that [`StopActivity::from_trace`] requires full history.
+//! remain valid, except that [`analyze`] and [`StopActivity::from_trace`] require
+//! full history.
 //! Detailed movement timing, boarding eligibility, and agreement with an external
 //! route or network are outside the shared preflight; stop-sequence checks remain
-//! specific to [`StopActivity::from_trace`].
+//! part of stop activity calculation, including in [`analyze`].
 
 use crate::rail::{RailPosition, RailSnapshot, RailTrace};
 use crate::world::NodeId;
@@ -267,6 +268,37 @@ pub struct OperationalAnalysis {
     pub route_timing: RouteTiming,
 }
 
+/// Derives all operational summaries without modifying the source trace.
+///
+/// Requires a full recording from stop zero with all passengers waiting through
+/// service completion, as for [`StopActivity::from_trace`]. The initial tick may
+/// be nonzero. Results are owned and deterministic for the same trace, retaining
+/// duplicate demands and repeated stop visits under each summary's conventions.
+///
+/// # Errors
+///
+/// Runs the shared [trace validation](self#trace-validation) once before any
+/// calculation, then computes passenger outcomes, passenger times, vehicle
+/// occupancy, stop activity, and route timing in that order. Returns the first
+/// [`AnalysisError`], including missing initial history, inconsistent stop
+/// sequences, or checked arithmetic overflow, without returning partial results.
+pub fn analyze(trace: &RailTrace) -> Result<OperationalAnalysis, AnalysisError> {
+    let final_snapshot = validate_trace(trace)?;
+    let passenger_outcomes = PassengerOutcomes::from_final_snapshot(final_snapshot)?;
+
+    Ok(OperationalAnalysis {
+        passenger_outcomes,
+        passenger_times: PassengerTimes::from_validated_trace(
+            trace,
+            final_snapshot,
+            passenger_outcomes.arrived,
+        )?,
+        vehicle_occupancy: VehicleOccupancy::from_validated_trace(trace)?,
+        stops: StopActivity::from_validated_trace(trace)?,
+        route_timing: RouteTiming::from_validated_trace(trace, final_snapshot.tick)?,
+    })
+}
+
 /// Aggregate final passenger counts, including duplicate demand records.
 ///
 /// In a completed service, `requested == arrived + unserved`, with no waiting
@@ -297,8 +329,10 @@ impl PassengerOutcomes {
     /// Aggregate overflow returns [`AnalysisError::CountOverflow`]; no partial
     /// result is returned on any error.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
-        let final_snapshot = validate_trace(trace)?;
+        Self::from_final_snapshot(validate_trace(trace)?)
+    }
 
+    fn from_final_snapshot(final_snapshot: &RailSnapshot) -> Result<Self, AnalysisError> {
         let mut requested = 0u64;
         let mut arrived = 0u64;
         let mut unserved = 0u64;
@@ -372,8 +406,17 @@ impl PassengerTimes {
     /// Checked products, totals, and the combined arrived journey total return
     /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
-        let outcomes = PassengerOutcomes::from_trace(trace)?;
-        let final_snapshot = trace.snapshots.last().ok_or(AnalysisError::EmptyTrace)?;
+        let final_snapshot = validate_trace(trace)?;
+        let outcomes = PassengerOutcomes::from_final_snapshot(final_snapshot)?;
+
+        Self::from_validated_trace(trace, final_snapshot, outcomes.arrived)
+    }
+
+    fn from_validated_trace(
+        trace: &RailTrace,
+        final_snapshot: &RailSnapshot,
+        arrived: u64,
+    ) -> Result<Self, AnalysisError> {
         let mut totals = [0u64; 4];
 
         for pair in trace.snapshots.windows(2) {
@@ -410,7 +453,7 @@ impl PassengerTimes {
         let journey = arrived_waiting_passenger_ticks
             .checked_add(arrived_onboard_passenger_ticks)
             .ok_or(AnalysisError::TimeOverflow)?;
-        let mean = |total| (outcomes.arrived != 0).then(|| total as f64 / outcomes.arrived as f64);
+        let mean = |total| (arrived != 0).then(|| total as f64 / arrived as f64);
 
         Ok(Self {
             waiting_passenger_ticks,
@@ -470,7 +513,10 @@ impl VehicleOccupancy {
     /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
         validate_trace(trace)?;
+        Self::from_validated_trace(trace)
+    }
 
+    fn from_validated_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
         let capacity = trace.snapshots[0].capacity;
         let mut active_ticks = 0u64;
         let mut max_occupancy = 0;
@@ -562,7 +608,10 @@ impl StopActivity {
     /// external network are outside this calculation.
     pub fn from_trace(trace: &RailTrace) -> Result<Vec<Self>, AnalysisError> {
         validate_trace(trace)?;
+        Self::from_validated_trace(trace)
+    }
 
+    fn from_validated_trace(trace: &RailTrace) -> Result<Vec<Self>, AnalysisError> {
         let initial = &trace.snapshots[0];
 
         if !matches!(initial.position, RailPosition::AtStop { stop_index: 0, .. })
@@ -748,11 +797,18 @@ impl RouteTiming {
     /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
     pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
         let final_snapshot = validate_trace(trace)?;
+        Self::from_validated_trace(trace, final_snapshot.tick)
+    }
+
+    fn from_validated_trace(
+        trace: &RailTrace,
+        completion_tick: u64,
+    ) -> Result<Self, AnalysisError> {
         let mut timing = Self {
             elapsed_ticks: 0,
             traveling_ticks: 0,
             dwelling_ticks: 0,
-            completion_tick: final_snapshot.tick,
+            completion_tick,
         };
 
         for pair in trace.snapshots.windows(2) {

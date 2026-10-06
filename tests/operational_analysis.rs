@@ -1,6 +1,6 @@
 use urbanflow::analysis::{
     AnalysisError, OperationalAnalysis, PassengerOutcomes, PassengerTimes, RouteTiming,
-    StopActivity, VehicleOccupancy,
+    StopActivity, VehicleOccupancy, analyze,
 };
 use urbanflow::demand::Demand;
 use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailTrace, RailVehicle};
@@ -9,8 +9,8 @@ use urbanflow::world::{EdgeKind, Network, NodeId};
 
 #[test]
 fn analysis_errors_support_standard_error_propagation_and_diagnostics() {
-    fn summarize(trace: &RailTrace) -> Result<PassengerOutcomes, Box<dyn std::error::Error>> {
-        Ok(PassengerOutcomes::from_trace(trace)?)
+    fn summarize(trace: &RailTrace) -> Result<OperationalAnalysis, Box<dyn std::error::Error>> {
+        Ok(analyze(trace)?)
     }
 
     let error = summarize(&RailTrace {
@@ -79,12 +79,39 @@ fn completed_trace(demands: &[Demand], capacity: u32) -> RailTrace {
 fn assert_trace_error(trace: &RailTrace, error: AnalysisError) {
     let before = trace.clone();
 
+    assert_eq!(analyze(trace), Err(error));
     assert_eq!(PassengerOutcomes::from_trace(trace), Err(error));
     assert_eq!(PassengerTimes::from_trace(trace), Err(error));
     assert_eq!(VehicleOccupancy::from_trace(trace), Err(error));
     assert_eq!(StopActivity::from_trace(trace), Err(error));
     assert_eq!(RouteTiming::from_trace(trace), Err(error));
     assert_eq!(*trace, before);
+}
+
+#[test]
+fn analyze_matches_individual_summaries_for_empty_zero_and_unserved_demand() {
+    for demands in [
+        vec![],
+        vec![Demand::new(NodeId(8), NodeId(3), 0)],
+        vec![Demand::new(NodeId(3), NodeId(8), 2)],
+    ] {
+        let mut trace = completed_trace(&demands, 6);
+
+        for snapshot in &mut trace.snapshots {
+            snapshot.tick += u64::MAX - 2;
+        }
+
+        assert_eq!(
+            analyze(&trace),
+            Ok(OperationalAnalysis {
+                passenger_outcomes: PassengerOutcomes::from_trace(&trace).unwrap(),
+                passenger_times: PassengerTimes::from_trace(&trace).unwrap(),
+                vehicle_occupancy: VehicleOccupancy::from_trace(&trace).unwrap(),
+                stops: StopActivity::from_trace(&trace).unwrap(),
+                route_timing: RouteTiming::from_trace(&trace).unwrap(),
+            })
+        );
+    }
 }
 
 #[test]
@@ -537,6 +564,7 @@ fn stop_activity_requires_full_recording_and_consistent_stop_and_passenger_data(
 
     for (invalid, error) in cases {
         let before = invalid.clone();
+        assert_eq!(analyze(&invalid), Err(error));
         assert_eq!(StopActivity::from_trace(&invalid), Err(error));
         assert_eq!(invalid, before);
     }
@@ -1374,9 +1402,33 @@ fn vehicle_occupancy_uses_exact_tick_differences_above_float_precision() {
 }
 
 #[test]
-fn operational_results_own_ordered_stop_visits_and_wide_totals() {
+fn analyze_returns_owned_ordered_summaries_and_wide_totals() {
+    let mut network = Network::new();
+    let outbound = network
+        .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+    let inbound = network
+        .add_edge(NodeId(3), NodeId(8), EdgeKind::Rail)
+        .unwrap();
+    let route = RailRoute::new(&network, vec![outbound, inbound]).unwrap();
+
+    let mut vehicle = RailVehicle::new(route, 4, 1, 1).unwrap();
+    let mut trace = vehicle
+        .record_trace(
+            &mut SimulationClock::default(),
+            &mut RailPassengers::new(&[
+                Demand::new(NodeId(8), NodeId(3), 2),
+                Demand::new(NodeId(8), NodeId(99), 1 << 31),
+                Demand::new(NodeId(8), NodeId(99), 1 << 31),
+            ]),
+            4,
+        )
+        .unwrap();
+
+    let before = trace.clone();
+    let analysis = analyze(&trace).unwrap();
     let unserved = u64::from(u32::MAX) + 1;
-    let analysis = {
+    let expected = {
         let stops = vec![
             StopActivity {
                 stop_index: 0,
@@ -1434,6 +1486,12 @@ fn operational_results_own_ordered_stop_visits_and_wide_totals() {
             },
         }
     };
+
+    assert_eq!(analysis, expected);
+    assert_eq!(analyze(&trace), Ok(expected));
+    assert_eq!(trace, before);
+
+    trace.snapshots.clear();
 
     let mut changed = analysis.clone();
     changed.stops[0].boarded = 0;
