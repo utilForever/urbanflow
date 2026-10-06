@@ -5,8 +5,8 @@
 //! derives passenger-ticks and arrived-passenger means over recorded intervals.
 //! [`VehicleOccupancy::from_trace`] derives capacity use over active intervals.
 //! [`StopActivity::from_trace`] summarizes each visit in a full service recording.
-//! Route timing remains a data contract; full trace validation and the
-//! remaining calculations are not yet implemented.
+//! [`RouteTiming::from_trace`] breaks active duration into travel and dwell.
+//! Full trace validation and combined analysis are not yet implemented.
 //! Public fields permit caller construction without validation.
 //! Unlike [`crate::metrics::Metrics`], these summaries describe a recorded
 //! service, not aggregate network allocation, construction cost, or reward.
@@ -52,7 +52,7 @@ pub enum AnalysisError {
         snapshot_index: usize,
         demand_index: usize,
     },
-    /// A passenger-tick product, total, or combined journey exceeds `u64::MAX`.
+    /// A duration, passenger-tick product, or time total exceeds `u64::MAX`.
     TimeOverflow,
     /// Capacity is zero or differs from the first snapshot's capacity.
     InvalidCapacity { snapshot_index: usize },
@@ -95,7 +95,7 @@ impl fmt::Display for AnalysisError {
                 formatter,
                 "snapshot {snapshot_index} has an invalid lifecycle transition for demand record {demand_index}"
             ),
-            Self::TimeOverflow => formatter.write_str("passenger time overflow"),
+            Self::TimeOverflow => formatter.write_str("time overflow"),
             Self::InvalidCapacity { snapshot_index } => write!(
                 formatter,
                 "snapshot {snapshot_index} has zero or inconsistent vehicle capacity"
@@ -726,8 +726,10 @@ impl StopActivity {
 ///
 /// Classify each interval by its starting position: `AtStop` is dwelling and
 /// `Traveling` is traveling. Thus `elapsed_ticks == traveling_ticks +
-/// dwelling_ticks`, also equal to the final tick minus the initial tick. A
-/// completion-only recording has zero durations but retains its absolute tick.
+/// dwelling_ticks`. Intervals starting at `Complete` add no active time. For
+/// recordings produced by [`crate::rail::RailVehicle::record_trace`], elapsed
+/// time also equals the final tick minus the initial tick. A completion-only
+/// recording has zero durations but retains its absolute tick.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RouteTiming {
     /// Total active recorded duration, in ticks.
@@ -738,4 +740,69 @@ pub struct RouteTiming {
     pub dwelling_ticks: u64,
     /// Absolute tick of the final, completed snapshot; need not equal duration.
     pub completion_tick: u64,
+}
+
+impl RouteTiming {
+    /// Derives route durations from a completed trace without modifying it.
+    ///
+    /// Each interval contributes its positive tick delta according to its
+    /// starting position: [`RailPosition::AtStop`] adds dwell time, including
+    /// the initial stop, and [`RailPosition::Traveling`] adds travel time.
+    /// Intervals starting at [`RailPosition::Complete`] and the terminal snapshot
+    /// add no time. Elapsed ticks are the sum of travel and dwell ticks, with no
+    /// final-stop dwell. The completion tick is the final snapshot's absolute tick.
+    ///
+    /// Only recorded intervals contribute; recording during service does not
+    /// reconstruct earlier durations. Gaps use the starting position for their
+    /// entire duration. A completion-only recording has zero durations.
+    ///
+    /// # Errors
+    ///
+    /// Applies [`PassengerOutcomes::from_trace`] validation first. Every interval,
+    /// including completed intervals, then requires strictly increasing ticks
+    /// ([`AnalysisError::InvalidTickOrder`], identifying the later snapshot by its
+    /// zero-based index). Checked duration totals return
+    /// [`AnalysisError::TimeOverflow`] on overflow, without partial results.
+    /// Tick contiguity, capacity, occupancy, passenger lifecycle transitions,
+    /// and route-position consistency are outside this operation.
+    pub fn from_trace(trace: &RailTrace) -> Result<Self, AnalysisError> {
+        PassengerOutcomes::from_trace(trace)?;
+
+        let mut timing = Self {
+            elapsed_ticks: 0,
+            traveling_ticks: 0,
+            dwelling_ticks: 0,
+            completion_tick: trace
+                .snapshots
+                .last()
+                .ok_or(AnalysisError::EmptyTrace)?
+                .tick,
+        };
+
+        for (index, pair) in trace.snapshots.windows(2).enumerate() {
+            let ticks = pair[1]
+                .tick
+                .checked_sub(pair[0].tick)
+                .filter(|&ticks| ticks > 0)
+                .ok_or(AnalysisError::InvalidTickOrder {
+                    snapshot_index: index + 1,
+                })?;
+            let duration = match pair[0].position {
+                RailPosition::AtStop { .. } => &mut timing.dwelling_ticks,
+                RailPosition::Traveling { .. } => &mut timing.traveling_ticks,
+                RailPosition::Complete { .. } => continue,
+            };
+
+            *duration = duration
+                .checked_add(ticks)
+                .ok_or(AnalysisError::TimeOverflow)?;
+        }
+
+        timing.elapsed_ticks = timing
+            .traveling_ticks
+            .checked_add(timing.dwelling_ticks)
+            .ok_or(AnalysisError::TimeOverflow)?;
+
+        Ok(timing)
+    }
 }
