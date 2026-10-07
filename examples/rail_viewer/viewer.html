@@ -206,6 +206,48 @@
         outline: 2px solid #087f8c;
         outline-offset: 4px;
       }
+      .analysis-panel {
+        padding: 24px;
+      }
+      .analysis-panel h2 {
+        margin: 0;
+        font-size: 20px;
+      }
+      .analysis-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+        gap: 24px;
+        align-items: start;
+      }
+      .analysis-panel table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      .analysis-panel caption {
+        text-align: left;
+        font-size: 16px;
+        font-weight: 700;
+        padding-bottom: 12px;
+      }
+      .analysis-panel th,
+      .analysis-panel td {
+        padding: 8px;
+        border-bottom: 1px solid #e5ebf0;
+        overflow-wrap: anywhere;
+      }
+      .analysis-panel th {
+        text-align: left;
+        font-weight: 500;
+      }
+      .analysis-panel td {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      #analysis-stops {
+        margin-top: 24px;
+        overflow-x: auto;
+      }
       footer {
         font-size: 13px;
       }
@@ -231,7 +273,9 @@
             <div class="legend" aria-label="Legend">
               <span><i class="swatch road" aria-hidden="true"></i>Road</span>
               <span><i class="swatch" aria-hidden="true"></i>Rail</span>
-              <span><i class="swatch vehicle" aria-hidden="true"></i>Vehicle</span>
+              <span
+                ><i class="swatch vehicle" aria-hidden="true"></i>Vehicle</span
+              >
             </div>
             <svg
               id="network"
@@ -243,8 +287,8 @@
                 Directed transit network and recorded Rail vehicle
               </title>
               <desc id="network-description">
-                Nodes follow stored order clockwise from the top. Arrows show edge
-                direction.
+                Nodes follow stored order clockwise from the top. Arrows show
+                edge direction.
               </desc>
               <defs>
                 <marker
@@ -340,6 +384,22 @@
           </div>
         </div>
       </section>
+      <section class="card analysis-panel" aria-labelledby="analysis-heading">
+        <h2 id="analysis-heading">Completed-run operational summary</h2>
+        <p id="analysis-help">
+          Analysis is unavailable for a partial recording. Record the full
+          service from its initial state through completion to see the summary.
+        </p>
+        <div id="analysis-summary" hidden>
+          <div id="analysis-metrics" class="analysis-grid"></div>
+          <div
+            id="analysis-stops"
+            role="region"
+            aria-label="Stop activity"
+            tabindex="0"
+          ></div>
+        </div>
+      </section>
       <noscript
         ><p>
           Enable JavaScript to display the embedded network and trace.
@@ -362,6 +422,120 @@
       const data = JSON.parse(
         document.getElementById("trace-data").textContent,
       );
+      // Display Rust's final analysis once; playback only changes snapshot state.
+      function summaryTable(parent, caption, columns, rows) {
+        const table = document.createElement("table");
+        table.createCaption().textContent = caption;
+        const heading = table.createTHead().insertRow();
+        for (const label of columns) {
+          const th = document.createElement("th");
+          th.scope = "col";
+          th.textContent = label;
+          heading.append(th);
+        }
+        const body = table.createTBody();
+        for (const values of rows) {
+          const row = body.insertRow();
+          values.forEach((value, index) => {
+            const cell = document.createElement(index === 0 ? "th" : "td");
+            if (index === 0) cell.scope = "row";
+            cell.textContent = value;
+            row.append(cell);
+          });
+        }
+        parent.append(table);
+      }
+      if (data.analysis) {
+        document.getElementById("analysis-summary").hidden = false;
+        document.getElementById("analysis-help").textContent =
+          "Final results for the entire recorded service, independent of playback. " +
+          "Time is in simulation ticks, not seconds. Passenger time means include " +
+          "only arrived passengers; onboard time includes dwell. N/A means undefined.";
+        const a = data.analysis;
+        const outcomes = a.passenger_outcomes;
+        const times = a.passenger_times;
+        const occupancy = a.vehicle_occupancy;
+        const timing = a.route_timing;
+        const mean = (value) => (value === null ? "N/A" : value.toFixed(2));
+        const percent = (value) =>
+          value === null ? "N/A" : `${(value * 100).toFixed(1)}%`;
+        const metrics = document.getElementById("analysis-metrics");
+        for (const [caption, rows] of [
+          [
+            "Passenger outcomes",
+            [
+              ["Requested", outcomes.requested],
+              ["Arrived", outcomes.arrived],
+              ["Unserved", outcomes.unserved],
+              ["Served share", percent(outcomes.served_share)],
+            ],
+          ],
+          [
+            "Passenger time",
+            [
+              [
+                "Waiting · all (passenger-ticks)",
+                times.waiting_passenger_ticks,
+              ],
+              [
+                "Onboard · all (passenger-ticks)",
+                times.onboard_passenger_ticks,
+              ],
+              [
+                "Waiting · arrived (passenger-ticks)",
+                times.arrived_waiting_passenger_ticks,
+              ],
+              [
+                "Onboard · arrived (passenger-ticks)",
+                times.arrived_onboard_passenger_ticks,
+              ],
+              ["Mean waiting (ticks)", mean(times.mean_waiting_ticks)],
+              ["Mean onboard (ticks)", mean(times.mean_onboard_ticks)],
+              ["Mean journey (ticks)", mean(times.mean_journey_ticks)],
+            ],
+          ],
+          [
+            "Vehicle occupancy",
+            [
+              ["Capacity (passengers)", occupancy.capacity],
+              ["Maximum (passengers)", occupancy.max_occupancy],
+              ["Mean (passengers)", mean(occupancy.mean_occupancy)],
+              [
+                "Occupied (passenger-ticks)",
+                occupancy.occupied_passenger_ticks,
+              ],
+              ["Maximum load factor", percent(occupancy.max_load_factor)],
+              ["Mean load factor", percent(occupancy.mean_load_factor)],
+            ],
+          ],
+          [
+            "Route timing",
+            [
+              ["Elapsed (ticks)", timing.elapsed_ticks],
+              ["Traveling (ticks)", timing.traveling_ticks],
+              ["Dwelling (ticks)", timing.dwelling_ticks],
+              ["Completion tick (absolute)", timing.completion_tick],
+            ],
+          ],
+        ])
+          summaryTable(metrics, caption, ["Metric", "Value"], rows);
+        summaryTable(
+          document.getElementById("analysis-stops"),
+          "Stop activity · route visit order",
+          ["Stop index", "Node", "Boarded", "Alighted", "Remaining waiting"],
+          a.stops.map((stop) => [
+            stop.stop_index,
+            stop.node,
+            stop.boarded,
+            stop.alighted,
+            stop.remaining_waiting,
+          ]),
+        );
+      } else if (data.trace.completed) {
+        document.getElementById("analysis-help").textContent =
+          "Analysis is unavailable because this recording omits the initial service state. " +
+          "Recorded snapshots remain available for playback and inspection.";
+      }
       const frames = data.trace.snapshots;
       const nodes = new Map();
       const paths = new Map();
@@ -500,10 +674,12 @@
           // Sum recorded counts only at tick boundaries, never interpolate them.
           for (const field of ["waiting", "onboard", "arrived", "unserved"]) {
             document.getElementById(`passenger-${field}`).textContent =
-              frame.passengers.reduce(
-                (total, passenger) => total + BigInt(passenger[field]),
-                0n,
-              ).toString();
+              frame.passengers
+                .reduce(
+                  (total, passenger) => total + BigInt(passenger[field]),
+                  0n,
+                )
+                .toString();
           }
         }
       }

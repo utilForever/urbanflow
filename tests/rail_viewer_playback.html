@@ -11,6 +11,10 @@
     const template = await fetch("../examples/rail_viewer/viewer.html", {
       cache: "no-store",
     }).then((response) => response.text());
+    // This same hand-checked payload is verified against Rust in rail_viewer.rs.
+    const serviceFixture = await fetch("./fixtures/rail_service.json", {
+      cache: "no-store",
+    }).then((response) => response.json());
     const stop = (index, node) => ({
       kind: "AtStop",
       stop_index: String(index),
@@ -36,12 +40,36 @@
     ];
     // Two demands share endpoints; both must contribute to the totals.
     const passengerCounts = [
-      [[4, 0, 0, 0], [4, 0, 0, 0], [3, 0, 0, 0]],
-      [[0, 4, 0, 0], [2, 2, 0, 0], [3, 0, 0, 0]],
-      [[0, 4, 0, 0], [2, 2, 0, 0], [3, 0, 0, 0]],
-      [[0, 0, 4, 0], [2, 0, 2, 0], [0, 3, 0, 0]],
-      [[0, 0, 4, 0], [2, 0, 2, 0], [0, 3, 0, 0]],
-      [[0, 0, 4, 0], [0, 0, 2, 2], [0, 0, 3, 0]],
+      [
+        [4, 0, 0, 0],
+        [4, 0, 0, 0],
+        [3, 0, 0, 0],
+      ],
+      [
+        [0, 4, 0, 0],
+        [2, 2, 0, 0],
+        [3, 0, 0, 0],
+      ],
+      [
+        [0, 4, 0, 0],
+        [2, 2, 0, 0],
+        [3, 0, 0, 0],
+      ],
+      [
+        [0, 0, 4, 0],
+        [2, 0, 2, 0],
+        [0, 3, 0, 0],
+      ],
+      [
+        [0, 0, 4, 0],
+        [2, 0, 2, 0],
+        [0, 3, 0, 0],
+      ],
+      [
+        [0, 0, 4, 0],
+        [0, 0, 2, 2],
+        [0, 0, 3, 0],
+      ],
     ];
     const snapshots = positions.map((position, index) => ({
       tick: String(18446744073709551610n + BigInt(index)),
@@ -53,7 +81,10 @@
           from: demand === 2 ? "3" : "7",
           to: demand === 2 ? "7" : "3",
           amount: demand === 2 ? 3 : 4,
-          waiting, onboard, arrived, unserved,
+          waiting,
+          onboard,
+          arrived,
+          unserved,
         }),
       ),
     }));
@@ -92,7 +123,15 @@
     }
 
     let iframe;
-    async function viewer(frames = snapshots, completed = true) {
+    async function viewer(
+      frames = snapshots,
+      completed = true,
+      data = {
+        ...fixture,
+        trace: { completed, snapshots: frames },
+        analysis: null,
+      },
+    ) {
       iframe?.remove();
       iframe = document.createElement("iframe");
       iframe.title = "Viewer under test";
@@ -100,13 +139,7 @@
       iframe.height = "800";
       const ready = new Promise((resolve) => (iframe.onload = resolve));
       iframe.srcdoc = template
-        .replace(
-          "__TRACE_DATA__",
-          JSON.stringify({
-            ...fixture,
-            trace: { completed, snapshots: frames },
-          }),
-        )
+        .replace("__TRACE_DATA__", JSON.stringify(data))
         .replace("<script>", `<script>(${installClock})();<\/script><script>`);
       document.body.append(iframe);
       await ready;
@@ -164,8 +197,12 @@
       ][index];
       displays(v, "status-tick", snapshots[index].tick);
       [
-        "vehicle-state", "vehicle-location", "vehicle-load",
-        "passenger-waiting", "passenger-onboard", "passenger-arrived",
+        "vehicle-state",
+        "vehicle-location",
+        "vehicle-load",
+        "passenger-waiting",
+        "passenger-onboard",
+        "passenger-arrived",
         "passenger-unserved",
       ].forEach((id, field) => displays(v, id, expected[field]));
     }
@@ -183,6 +220,98 @@
     }
 
     const tests = [
+      [
+        "core analysis displays immediately and stays fixed during playback",
+        async () => {
+          const v = await viewer(undefined, undefined, serviceFixture);
+          const summary = v.get("analysis-summary");
+          assert(!summary.hidden, "Completed summary is visible on load");
+          const tables = [...summary.querySelectorAll("table")];
+          const expected = [
+            ["6", "4", "2", "66.7%"],
+            ["20", "10", "8", "10", "2.00", "2.50", "4.50"],
+            ["2", "2", "1.67", "10", "100.0%", "83.3%"],
+            ["6", "4", "2", "6"],
+            ["8", "2", "0", "2", "3", "2", "2", "0", "21", "0", "2", "0"],
+          ];
+          assert(tables.length === 5, "All five summaries have native tables");
+          tables.forEach((table, index) =>
+            assert(
+              JSON.stringify(
+                [...table.querySelectorAll("td")].map(
+                  (cell) => cell.textContent,
+                ),
+              ) === JSON.stringify(expected[index]),
+              `Values and units for ${table.caption.textContent} match the core fixture`,
+            ),
+          );
+          const before = summary.innerHTML;
+          v.click("play");
+          v.advance(1500);
+          v.change("speed", 4);
+          v.advance(10000);
+          v.change("snapshot", 3);
+          v.click("reset");
+          assert(
+            summary.innerHTML === before,
+            "Playback never changes final analysis",
+          );
+          displays(v, "status-tick", "0");
+          iframe.width = "375";
+          const doc = iframe.contentDocument;
+          assert(
+            doc.documentElement.scrollWidth <= doc.documentElement.clientWidth,
+            "Summary fits on a narrow screen",
+          );
+        },
+      ],
+      [
+        "analysis preserves exact integers, undefined means, zeroes, and repeated visits",
+        async () => {
+          const data = structuredClone(serviceFixture);
+          data.analysis.passenger_outcomes.served_share = null;
+          data.analysis.passenger_times.mean_waiting_ticks = null;
+          data.analysis.passenger_times.mean_onboard_ticks = null;
+          data.analysis.passenger_times.mean_journey_ticks = null;
+          data.analysis.vehicle_occupancy.mean_occupancy = 0;
+          data.analysis.vehicle_occupancy.max_load_factor = null;
+          data.analysis.vehicle_occupancy.mean_load_factor = 0;
+          data.analysis.route_timing.completion_tick = "18446744073709551615";
+          data.analysis.stops[2].node = data.analysis.stops[0].node;
+          const v = await viewer(undefined, undefined, data);
+          const tables = v.get("analysis-summary").querySelectorAll("table");
+          assert(
+            tables[0].textContent.includes("N/A"),
+            "Undefined share is N/A",
+          );
+          assert(
+            tables[1].textContent.match(/N\/A/g).length === 3,
+            "Undefined means are N/A",
+          );
+          assert(
+            tables[2].textContent.includes("0.00"),
+            "Zero mean is defined",
+          );
+          assert(
+            tables[2].textContent.includes("0.0%"),
+            "Zero load factor is defined",
+          );
+          assert(
+            tables[2].textContent.includes("N/A"),
+            "Undefined load factor is N/A",
+          );
+          assert(
+            tables[3].textContent.includes("18446744073709551615"),
+            "Exact completion tick",
+          );
+          assert(
+            [...tables[4].tBodies[0].rows]
+              .map((row) => row.cells[1].textContent)
+              .join(",") === "8,3,8",
+            "Repeated visits retain route order",
+          );
+        },
+      ],
       [
         "lagging frame timestamps never hide or rewind the vehicle",
         async () => {
@@ -333,6 +462,40 @@
             v.get("trace-status").textContent === "Partial trace",
             "Partial badge is preserved",
           );
+          assert(
+            v.get("analysis-summary").hidden,
+            "No final analysis for partial traces",
+          );
+          assert(
+            v.get("analysis-help").textContent.includes("unavailable"),
+            "Explains missing analysis",
+          );
+        },
+      ],
+      [
+        "resumed completed recordings retain playback without final analysis",
+        async () => {
+          const v = await viewer(snapshots.slice(1), true);
+          assert(
+            v.get("analysis-summary").hidden,
+            "No summary without initial history",
+          );
+          assert(
+            v
+              .get("analysis-help")
+              .textContent.includes("omits the initial service state"),
+            "Explains missing initial history",
+          );
+          displays(v, "trace-status", "Complete trace");
+          status(v, 1);
+          assert(!v.get("play").disabled, "Recorded intervals can still play");
+          v.click("play");
+          v.advance(20000);
+          status(v, 5);
+          v.change("snapshot", 2);
+          status(v, 3);
+          v.click("reset");
+          status(v, 1);
         },
       ],
       [
@@ -377,13 +540,30 @@
             );
             if (frames.length) {
               status(v, frames[0] === snapshots[0] ? 0 : 5);
+              if (frames[0].position.kind === "Complete") {
+                assert(
+                  v.get("analysis-summary").hidden,
+                  "No completion-only summary",
+                );
+                assert(
+                  v
+                    .get("analysis-help")
+                    .textContent.includes("omits the initial service state"),
+                  "Completion-only recordings explain missing initial history",
+                );
+              }
             } else {
               displays(v, "vehicle-state", "No snapshots recorded");
               for (const id of [
-                "status-tick", "vehicle-location", "vehicle-load",
-                "passenger-waiting", "passenger-onboard", "passenger-arrived",
+                "status-tick",
+                "vehicle-location",
+                "vehicle-load",
+                "passenger-waiting",
+                "passenger-onboard",
+                "passenger-arrived",
                 "passenger-unserved",
-              ]) displays(v, id, "—");
+              ])
+                displays(v, id, "—");
             }
           }
         },
@@ -394,7 +574,9 @@
           const v = await viewer();
           iframe.width = "375";
           const doc = iframe.contentDocument;
-          const panel = doc.querySelector(".status-panel").getBoundingClientRect();
+          const panel = doc
+            .querySelector(".status-panel")
+            .getBoundingClientRect();
           const network = v.get("network").getBoundingClientRect();
           assert(panel.top >= network.bottom, "Status must follow the network");
           assert(

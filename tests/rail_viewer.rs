@@ -1,6 +1,7 @@
 #[path = "../examples/rail_viewer/mod.rs"]
 mod rail_viewer;
 
+use urbanflow::analysis::AnalysisError;
 use urbanflow::demand::Demand;
 use urbanflow::rail::{
     RailPassengers, RailPosition, RailRoute, RailTrace, RailVehicle, RailVehicleState,
@@ -151,7 +152,7 @@ fn fixed_route_service_reaches_the_viewer_end_to_end() {
         &vehicle.snapshot(&clock, &passengers).unwrap()
     );
 
-    let html = rail_viewer::render(&world, &trace);
+    let html = rail_viewer::render(&world, &trace).unwrap();
     // This hand-checked fixture covers the entire ordered payload, not just
     // isolated fields. Its schema contains no whitespace inside string values.
     let expected = include_str!("fixtures/rail_service.json")
@@ -194,9 +195,11 @@ fn viewer_embeds_ordered_network_and_core_positions_without_losing_integer_preci
         .unwrap();
 
     // Presentation must preserve large integer labels as well as sparse IDs.
-    trace.snapshots[3].tick = u64::MAX;
+    for (index, snapshot) in trace.snapshots.iter_mut().enumerate() {
+        snapshot.tick = u64::MAX - 3 + index as u64;
+    }
 
-    let html = rail_viewer::render(&world, &trace);
+    let html = rail_viewer::render(&world, &trace).unwrap();
     let data = embedded_data(&html);
 
     assert!(data.starts_with(&format!(
@@ -215,6 +218,7 @@ fn viewer_embeds_ordered_network_and_core_positions_without_losing_integer_preci
 
     assert_eq!(data.matches("\"tick\":").count(), 4);
     assert!(data.contains("\"tick\":\"18446744073709551615\""));
+    assert!(data.contains("\"completion_tick\":\"18446744073709551615\""));
     assert!(data.contains(r#""occupancy":2,"capacity":2"#));
     assert!(data.contains(r#""passengers":[{"from":"7","to":"3","amount":3,"waiting":0,"onboard":0,"arrived":2,"unserved":1}]"#));
     assert!(!html.contains("<script src="));
@@ -227,20 +231,121 @@ fn demo_html_is_repeatable_and_preserves_partial_and_empty_traces() {
 
     assert!(trace.completed);
 
-    let html = rail_viewer::render(&world, &trace);
+    let html = rail_viewer::render(&world, &trace).unwrap();
     let (repeated_world, repeated_trace) = rail_viewer::scenario();
 
-    assert_eq!(html, rail_viewer::render(&repeated_world, &repeated_trace));
+    assert_eq!(
+        html,
+        rail_viewer::render(&repeated_world, &repeated_trace).unwrap()
+    );
 
     for snapshots in [vec![], vec![trace.snapshots[0].clone()]] {
         let partial = RailTrace {
             snapshots,
             completed: false,
         };
-        let html = rail_viewer::render(&world, &partial);
+        let html = rail_viewer::render(&world, &partial).unwrap();
         let data = embedded_data(&html);
 
         assert!(data.contains("\"completed\":false"));
+        assert!(data.ends_with("\"analysis\":null}"));
         assert_eq!(data.matches("\"tick\":").count(), partial.snapshots.len());
     }
+}
+
+#[test]
+fn viewer_preserves_undefined_analysis_and_repeated_stop_visits() {
+    let mut network = Network::new();
+    let edges = [(7, 3), (3, 7)].map(|(from, to)| {
+        network
+            .add_edge(NodeId(from), NodeId(to), EdgeKind::Rail)
+            .unwrap()
+    });
+    let mut vehicle =
+        RailVehicle::new(RailRoute::new(&network, edges.to_vec()).unwrap(), 2, 1, 1).unwrap();
+    let trace = vehicle
+        .record_trace(
+            &mut SimulationClock::default(),
+            &mut RailPassengers::new(&[]),
+            4,
+        )
+        .unwrap();
+    let world = World {
+        nodes: [7, 3].map(|id| Node { id: NodeId(id) }).to_vec(),
+        network,
+    };
+    let html = rail_viewer::render(&world, &trace).unwrap();
+    let data = embedded_data(&html);
+
+    assert!(data.contains(
+        r#""passenger_outcomes":{"requested":"0","arrived":"0","unserved":"0","served_share":null}"#
+    ));
+    assert!(data.contains(
+        r#""mean_waiting_ticks":null,"mean_onboard_ticks":null,"mean_journey_ticks":null"#
+    ));
+    assert!(data.contains(r#""mean_occupancy":0,"max_load_factor":0,"mean_load_factor":0"#));
+    assert!(data.contains(r#""stops":[{"stop_index":"0","node":"7","boarded":"0","alighted":"0","remaining_waiting":"0"},{"stop_index":"1","node":"3","boarded":"0","alighted":"0","remaining_waiting":"0"},{"stop_index":"2","node":"7","boarded":"0","alighted":"0","remaining_waiting":"0"}]"#));
+}
+
+#[test]
+fn viewer_preserves_resumed_and_completion_only_recordings_without_analysis() {
+    let mut network = Network::new();
+    let edge = network
+        .add_edge(NodeId(7), NodeId(3), EdgeKind::Rail)
+        .unwrap();
+    let mut vehicle =
+        RailVehicle::new(RailRoute::new(&network, vec![edge]).unwrap(), 2, 2, 1).unwrap();
+    let world = World {
+        nodes: [7, 3].map(|id| Node { id: NodeId(id) }).to_vec(),
+        network,
+    };
+    let mut clock = SimulationClock::default();
+    let mut passengers = RailPassengers::new(&[Demand::new(NodeId(7), NodeId(3), 3)]);
+
+    vehicle.advance(&mut clock, &mut passengers).unwrap();
+
+    for expected_ticks in [&[1, 2, 3][..], &[3][..]] {
+        let trace = vehicle
+            .record_trace(&mut clock, &mut passengers, 3)
+            .unwrap();
+
+        assert!(trace.completed);
+
+        let before = trace.clone();
+        let html = rail_viewer::render(&world, &trace).unwrap();
+        let data = embedded_data(&html);
+
+        assert_eq!(trace, before);
+        assert!(data.contains(r#""completed":true"#));
+        assert!(data.ends_with(r#""analysis":null}"#));
+        assert_eq!(data.matches("\"tick\":").count(), expected_ticks.len());
+
+        for tick in expected_ticks {
+            assert!(data.contains(&format!(r#""tick":"{tick}""#)));
+        }
+
+        assert!(data.contains(r#""waiting":0,"onboard":0,"arrived":2,"unserved":1"#));
+
+        let mut invalid = trace;
+        invalid.snapshots[0].occupancy = 3;
+
+        assert_eq!(
+            rail_viewer::render(&world, &invalid),
+            Err(AnalysisError::InvalidOccupancy { snapshot_index: 0 }),
+        );
+    }
+}
+
+#[test]
+fn viewer_propagates_completed_trace_analysis_errors_without_mutation() {
+    let (world, mut trace) = rail_viewer::scenario();
+    trace.snapshots[1].occupancy = 0;
+
+    let before = trace.clone();
+
+    assert_eq!(
+        rail_viewer::render(&world, &trace),
+        Err(AnalysisError::InvalidOccupancy { snapshot_index: 1 }),
+    );
+    assert_eq!(trace, before);
 }
