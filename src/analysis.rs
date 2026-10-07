@@ -756,21 +756,23 @@ impl StopActivity {
     }
 }
 
-/// Duration of the recorded service, excluding any final-stop dwell.
+/// Duration of recorded active service intervals.
 ///
 /// Classify each interval by its starting position: `AtStop` is dwelling and
 /// `Traveling` is traveling. Thus `elapsed_ticks == traveling_ticks +
 /// dwelling_ticks`. Intervals starting at `Complete` add no active time. For
-/// recordings produced by [`crate::rail::RailVehicle::record_trace`], elapsed
-/// time also equals the final tick minus the initial tick. A completion-only
-/// recording has zero durations but retains its absolute tick.
+/// recordings produced by [`crate::rail::RailVehicle::record_trace`], final
+/// arrival completes service immediately, so there is no final-stop dwell and
+/// elapsed time equals the final tick minus the initial tick. Caller-constructed
+/// traces include any recorded final-stop `AtStop` intervals in dwell time.
+/// A completion-only recording has zero durations but retains its absolute tick.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RouteTiming {
     /// Total active recorded duration, in ticks.
     pub elapsed_ticks: u64,
     /// Ticks spent traveling along route edges.
     pub traveling_ticks: u64,
-    /// Ticks spent dwelling before departure, including the initial stop.
+    /// Ticks in recorded `AtStop` intervals, including the initial stop.
     pub dwelling_ticks: u64,
     /// Absolute tick of the final, completed snapshot; need not equal duration.
     pub completion_tick: u64,
@@ -781,10 +783,13 @@ impl RouteTiming {
     ///
     /// Each interval contributes its positive tick delta according to its
     /// starting position: [`RailPosition::AtStop`] adds dwell time, including
-    /// the initial stop, and [`RailPosition::Traveling`] adds travel time.
+    /// the initial stop and any recorded interval at the final stop, and
+    /// [`RailPosition::Traveling`] adds travel time.
     /// Intervals starting at [`RailPosition::Complete`] and the terminal snapshot
-    /// add no time. Elapsed ticks are the sum of travel and dwell ticks, with no
-    /// final-stop dwell. The completion tick is the final snapshot's absolute tick.
+    /// add no time. Elapsed ticks are the sum of travel and dwell ticks.
+    /// [`crate::rail::RailVehicle`] completes immediately on final arrival, so
+    /// its traces have no final-stop dwell. The completion tick is the final
+    /// snapshot's absolute tick.
     ///
     /// Only recorded intervals contribute; recording during service does not
     /// reconstruct earlier durations. A completion-only recording has zero

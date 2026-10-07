@@ -112,70 +112,83 @@ A trace records the initial snapshot and each subsequent tick, up to the supplie
 
 ### Operational Analysis
 
-[`analysis::OperationalAnalysis`](src/analysis.rs) defines owned summaries for passenger outcomes and time, vehicle occupancy, ordered stop visits, and route timing. Counts and passenger-ticks use integers; undefined means and ratios use `None`. Repeated visits to the same node retain separate entries in route order.
+Use [`analysis::analyze(&trace)`](src/analysis.rs) to derive all five summaries in one call, returning `Result<OperationalAnalysis, AnalysisError>`. It validates once, leaves the trace unchanged, and returns owned, deterministic results for the same trace. Record from stop zero with all passengers waiting and include every tick through completion; the initial tick may be nonzero.
 
-Use `analysis::analyze(&trace)` to derive all five summaries in one call. It runs shared validation once, leaves the trace unchanged, and returns `Result<OperationalAnalysis, AnalysisError>`. Because it includes stop activity, the recording must start at stop zero with all passengers waiting and contain every tick through completion; the initial tick may be nonzero. For the Rail trace above:
-
-```rust
-let analysis = urbanflow::analysis::analyze(&trace).unwrap();
-
-assert_eq!(analysis.passenger_outcomes.arrived, 6);
-assert_eq!(analysis.passenger_times.mean_journey_ticks, Some(2.0));
-assert_eq!(analysis.vehicle_occupancy.max_occupancy, 6);
-assert_eq!(analysis.stops[0].boarded, 6);
-assert_eq!(analysis.route_timing.elapsed_ticks, 2);
-```
-
-Individual summaries remain available when only part of the analysis is needed.
-
-Use `PassengerOutcomes::from_trace(&trace)` to sum requested, arrived, and unserved passengers from the final snapshot of a completed Rail trace, including duplicate demands. Totals use checked `u64` arithmetic, and `served_share` is `None` when no passengers were requested. For the Rail trace above:
+This complete example records one Rail edge with capacity 6, one travel tick, one dwell tick, and 10 requested passengers:
 
 ```rust
-use urbanflow::analysis::{
-    PassengerOutcomes, PassengerTimes, RouteTiming, StopActivity, VehicleOccupancy,
-};
+use urbanflow::analysis::analyze;
+use urbanflow::demand::Demand;
+use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle};
+use urbanflow::time::SimulationClock;
+use urbanflow::world::{EdgeKind, Network, NodeId};
 
-let outcomes = PassengerOutcomes::from_trace(&trace).unwrap();
-assert_eq!((outcomes.requested, outcomes.arrived, outcomes.unserved), (10, 6, 4));
-assert_eq!(outcomes.served_share, Some(0.6));
+fn main() {
+    let mut network = Network::new();
+    let edge = network.add_edge(NodeId(0), NodeId(2), EdgeKind::Rail).unwrap();
+    let route = RailRoute::new(&network, vec![edge]).unwrap();
+    let mut vehicle = RailVehicle::new(route, 6, 1, 1).unwrap();
+    let mut clock = SimulationClock::default();
+    let mut passengers = RailPassengers::new(&[Demand::new(NodeId(0), NodeId(2), 10)]);
 
-let times = PassengerTimes::from_trace(&trace).unwrap();
-assert_eq!(times.waiting_passenger_ticks, 14); // Includes unserved waiting.
-assert_eq!(times.onboard_passenger_ticks, 6);
-assert_eq!(times.mean_waiting_ticks, Some(1.0));
-assert_eq!(times.mean_onboard_ticks, Some(1.0));
-assert_eq!(times.mean_journey_ticks, Some(2.0));
+    let trace = vehicle.record_trace(&mut clock, &mut passengers, 2).unwrap();
+    assert!(trace.completed);
 
-let occupancy = VehicleOccupancy::from_trace(&trace).unwrap();
-assert_eq!(occupancy.max_occupancy, 6);
-assert_eq!(occupancy.occupied_passenger_ticks, 6);
-assert_eq!(occupancy.mean_occupancy, Some(3.0));
-assert_eq!(occupancy.max_load_factor, Some(1.0));
-assert_eq!(occupancy.mean_load_factor, Some(0.5));
+    let analysis = analyze(&trace).unwrap();
+    let outcomes = analysis.passenger_outcomes;
+    assert_eq!((outcomes.requested, outcomes.arrived, outcomes.unserved), (10, 6, 4));
+    assert_eq!(outcomes.served_share, Some(0.6));
 
-let stops = StopActivity::from_trace(&trace).unwrap();
-assert_eq!(stops.len(), 2);
-assert_eq!((stops[0].boarded, stops[0].remaining_waiting), (6, 4));
-assert_eq!(stops[1].alighted, 6);
+    let times = analysis.passenger_times;
+    assert_eq!(times.waiting_passenger_ticks, 14); // Includes unserved waiting.
+    assert_eq!(times.onboard_passenger_ticks, 6);
+    assert_eq!(times.arrived_waiting_passenger_ticks, 6);
+    assert_eq!(times.arrived_onboard_passenger_ticks, 6);
+    assert_eq!(times.mean_waiting_ticks, Some(1.0));
+    assert_eq!(times.mean_onboard_ticks, Some(1.0));
+    assert_eq!(times.mean_journey_ticks, Some(2.0));
 
-let timing = RouteTiming::from_trace(&trace).unwrap();
-assert_eq!(timing.elapsed_ticks, 2);
-assert_eq!(timing.traveling_ticks, 1);
-assert_eq!(timing.dwelling_ticks, 1);
-assert_eq!(timing.completion_tick, 2);
+    let occupancy = analysis.vehicle_occupancy;
+    assert_eq!(occupancy.capacity, 6);
+    assert_eq!(occupancy.max_occupancy, 6);
+    assert_eq!(occupancy.occupied_passenger_ticks, 6);
+    assert_eq!(occupancy.mean_occupancy, Some(3.0));
+    assert_eq!(occupancy.max_load_factor, Some(1.0));
+    assert_eq!(occupancy.mean_load_factor, Some(0.5));
+
+    assert_eq!(analysis.stops.len(), 2);
+    assert_eq!((analysis.stops[0].boarded, analysis.stops[0].remaining_waiting), (6, 4));
+    assert_eq!(analysis.stops[1].alighted, 6);
+
+    let timing = analysis.route_timing;
+    assert_eq!(timing.elapsed_ticks, 2);
+    assert_eq!((timing.traveling_ticks, timing.dwelling_ticks), (1, 1));
+    assert_eq!(timing.completion_tick, 2);
+}
 ```
 
-All five operations share a read-only preflight before calculation. It rejects empty or incomplete traces, duplicate/decreasing ticks or missing ticks, changing ordered demands, passenger counts that do not conserve each demand, backward lifecycle transitions, zero or changing capacity, and occupancy that exceeds capacity or differs from summed onboard passengers. Completed positions must have no waiting or onboard passengers. Failures return a typed `AnalysisError` without changing the trace or returning partial results. Passenger outcome, passenger time, vehicle occupancy, and route timing summaries also accept a recording starting during service or containing only the completed snapshot, with any initial tick. `AnalysisError` implements `Display` and `std::error::Error`, so callers returning `Result<_, Box<dyn std::error::Error>>` can propagate failures with `?`.
+Time is measured in simulation ticks, with no wall-clock unit. One passenger waiting or onboard for one tick contributes one passenger-tick. Each interval `[snapshot.tick, next_snapshot.tick)` uses its starting state and counts; changes take effect where they first appear in the recording, and the terminal snapshot adds no interval. Here all 10 passengers wait during `[0, 1)`, then 6 ride and 4 wait during `[1, 2)`. This gives 14 waiting passenger-ticks, but only 6 belong to passengers who arrive. Their mean waiting time is therefore `6 / 6 = 1` tick, not `14 / 6`.
 
-`PassengerTimes::from_trace` accumulates checked integer passenger-ticks using each interval's starting counts, including onboard dwell. Its means include only passengers who arrived, attributing arrivals to earlier boardings within each demand; unserved passengers' waiting and onboard time contribute only to the overall totals. Means are `None` when nobody arrived. Only recorded intervals contribute time, so a completion-only recording has zero totals and zero means when passengers arrived.
+| Result                   | Meaning and units                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `passenger_outcomes`     | `requested`, `arrived`, and `unserved` count passengers across all demand records, including duplicates. At completion, `requested == arrived + unserved`. `served_share` is `arrived / requested`, a fraction from 0 to 1.                                                                                                                                      |
+| `passenger_times` totals | `waiting_passenger_ticks` and `onboard_passenger_ticks` include all passengers, even those unserved. Onboard time includes dwell. The two `arrived_*` totals include only passengers who arrive, attributing arrivals to earlier boardings within each demand.                                                                                                   |
+| `passenger_times` means  | `mean_waiting_ticks` and `mean_onboard_ticks` divide their respective `arrived_*` totals by final `arrived`; `mean_journey_ticks` divides their sum by `arrived`. All are ticks per arrived passenger.                                                                                                                                                           |
+| `vehicle_occupancy`      | `capacity` is the fixed vehicle capacity; `max_occupancy` is the highest occupancy over recorded active intervals. `occupied_passenger_ticks` sums occupancy times duration, including dwell. `mean_occupancy` divides that total by active ticks. Maximum and mean load factors divide the corresponding occupancy by capacity, yielding fractions from 0 to 1. |
+| `stops`                  | One entry per visit in route order: `stop_index`, `node`, `boarded`, `alighted`, and `remaining_waiting`. Repeated nodes retain separate entries, including empty visits. Boarding and alighting count separately. Remaining waiting includes ineligible demand originating there; at the final stop it is counted before conversion to unserved.                |
+| `route_timing`           | Every `AtStop` interval adds `dwelling_ticks`, including initial and any recorded final-stop dwell. `Traveling` intervals add `traveling_ticks`; their sum is `elapsed_ticks`. `RailVehicle` completes immediately on final arrival, so its traces have no final-stop dwell. Intervals starting at `Complete` are excluded. `completion_tick` is the final snapshot's absolute tick, not a duration. |
 
-`VehicleOccupancy::from_trace` weights each interval's starting occupancy by its tick duration, including travel and dwell. It reports the configured capacity, maximum occupancy, occupied passenger-ticks, mean occupancy, and maximum and mean load factors. Completed positions add no active time. A completion-only recording has zero integer measurements and `None` means and load factors; an active service with no passengers has `Some(0.0)` derived values. It checks passenger-tick overflow and does not reconstruct unrecorded history.
+Counts and time totals use checked integers; means and ratios use `f64` and may round large values. Undefined results use `None`, never NaN or infinity:
 
-`StopActivity::from_trace` returns one entry per route visit, including empty visits and separate entries for repeated nodes. It counts boarding and alighting separately even when both happen at the same stop. Remaining waiting includes ineligible demand originating there; at the final stop it uses the count before passengers become unserved. This operation requires a full recording that starts at stop zero with every passenger waiting and continues tick by tick through completion; the starting tick may be nonzero. In addition to shared validation, it checks stop order and passenger changes at stop processing. It rejects missing history instead of reconstructing unrecorded activity.
+- No requested passengers: `served_share` is `None`. Positive demand with no arrivals gives `Some(0.0)`.
+- No arrived passengers: all three passenger-time means are `None`, even if unserved waiting contributes to totals.
+- No active intervals: maximum occupancy and occupied passenger-ticks are zero; mean occupancy and both load factors are `None`. Capacity stays positive. An active service with no onboard passengers instead has zero occupancy measurements and `Some(0.0)` mean occupancy and load factors.
 
-`RouteTiming::from_trace` classifies each recorded interval by its starting position: `AtStop` adds dwelling ticks and `Traveling` adds traveling ticks. Their sum is the total active elapsed duration, including initial dwell and excluding final-stop dwell or intervals starting at `Complete`. The completion tick is the final snapshot's absolute tick, which may differ from elapsed duration when recording starts later. A completion-only recording has zero durations; gaps are rejected.
+Individual `PassengerOutcomes`, `PassengerTimes`, `VehicleOccupancy`, `StopActivity`, and `RouteTiming` summaries remain available through `from_trace(&trace)`. All require a completed recording. Except for stop activity, they also accept recordings starting during service or containing only completion; they never reconstruct missing history. Passenger-time means still divide by final arrivals, including those before recording. A completion-only recording has zero time totals and durations, zero passenger-time means if anyone arrived, and undefined occupancy ratios. `analyze` and stop activity reject missing initial history with `AnalysisError::MissingInitialState`.
 
-The browser viewer embeds these core-produced summaries for completed recordings. Shared validation does not verify detailed movement timing, boarding eligibility, or agreement with an external route or network. These summaries describe Rail service operations and are separate from the aggregate `Metrics` used by `Env`. See the [analysis API](src/analysis.rs) for field units, errors, and interval conventions.
+Shared validation rejects empty or incomplete traces, noncontiguous ticks, changing ordered demands, invalid passenger counts or lifecycle transitions, zero or changing capacity, and inconsistent occupancy. Completed positions must have no waiting or onboard passengers. Stop activity also checks visit order and passenger changes at stops. Invalid data and arithmetic overflow return a typed `AnalysisError` without mutation or partial results. `AnalysisError` implements `Display` and `std::error::Error` for propagation with `?`. See the [analysis API](src/analysis.rs) for detailed error contracts.
+
+These summaries describe one fixed-route, single-vehicle Rail service, separately from `Env` allocation, construction costs, and rewards. Validation does not verify detailed movement timing, boarding eligibility, or agreement with an external route or network. Multiple-route or multiple-vehicle comparisons, statistical experiments, confidence intervals, optimization, hosted dashboards, and GIS analysis remain planned. The [browser viewer](#browser-viewer) displays core-produced summaries; playback speed and seeking do not affect them.
 
 ### Browser Viewer
 
