@@ -126,162 +126,127 @@ fn stop_activity_keeps_empty_visits_and_checked_wide_waiting_counts(
     );
 }
 
-#[test]
-fn stop_activity_requires_full_recording_and_consistent_stop_and_passenger_data() {
-    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
-    let mut cases = vec![(
-        RailTrace {
-            snapshots: vec![],
-            completed: true,
-        },
-        AnalysisError::EmptyTrace,
-    )];
-
-    let mut invalid = trace.clone();
-    invalid.completed = false;
-
-    cases.push((invalid, AnalysisError::IncompleteTrace));
-
-    for first in [1, 2] {
-        let mut invalid = trace.clone();
-        invalid.snapshots.drain(..first);
-
-        cases.push((invalid, AnalysisError::MissingInitialState));
-    }
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[0].passengers[0].waiting = 1;
-    invalid.snapshots[0].passengers[0].onboard = 1;
-    invalid.snapshots[0].occupancy = 1;
-
-    cases.push((invalid, AnalysisError::MissingInitialState));
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[1].tick = 0;
-
-    cases.push((
-        invalid,
-        AnalysisError::InvalidTickOrder { snapshot_index: 1 },
-    ));
-
-    let mut invalid = trace.clone();
-    invalid.snapshots.remove(1);
-
-    cases.push((
-        invalid,
-        AnalysisError::NonContiguousTicks { snapshot_index: 1 },
-    ));
-
-    for missing in [false, true] {
-        let mut invalid = trace.clone();
-
-        if missing {
-            invalid.snapshots[1].passengers.clear();
-        } else {
-            invalid.snapshots[1].passengers[0].demand.origin = NodeId(99);
-        }
-
-        cases.push((
-            invalid,
-            AnalysisError::InconsistentDemands { snapshot_index: 1 },
-        ));
-    }
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[1].passengers[0].onboard = 1;
-
-    cases.push((
-        invalid,
-        AnalysisError::InvalidPassengerCounts { demand_index: 0 },
-    ));
-
-    for position in [
-        RailPosition::Complete {
+#[rstest]
+#[case::empty(
+    |trace: &mut RailTrace| trace.snapshots.clear(),
+    AnalysisError::EmptyTrace,
+)]
+#[case::incomplete(
+    |trace: &mut RailTrace| trace.completed = false,
+    AnalysisError::IncompleteTrace,
+)]
+#[case::starts_during_service(
+    |trace: &mut RailTrace| {
+        trace.snapshots.drain(..1);
+    },
+    AnalysisError::MissingInitialState,
+)]
+#[case::completion_only(
+    |trace: &mut RailTrace| {
+        trace.snapshots.drain(..2);
+    },
+    AnalysisError::MissingInitialState,
+)]
+#[case::initial_passengers_onboard(
+    |trace: &mut RailTrace| {
+        trace.snapshots[0].passengers[0].waiting = 1;
+        trace.snapshots[0].passengers[0].onboard = 1;
+        trace.snapshots[0].occupancy = 1;
+    },
+    AnalysisError::MissingInitialState,
+)]
+#[case::duplicate_tick(
+    |trace: &mut RailTrace| trace.snapshots[1].tick = 0,
+    AnalysisError::InvalidTickOrder { snapshot_index: 1 },
+)]
+#[case::missing_tick(
+    |trace: &mut RailTrace| {
+        trace.snapshots.remove(1);
+    },
+    AnalysisError::NonContiguousTicks { snapshot_index: 1 },
+)]
+#[case::changed_demand(
+    |trace: &mut RailTrace| trace.snapshots[1].passengers[0].demand.origin = NodeId(99),
+    AnalysisError::InconsistentDemands { snapshot_index: 1 },
+)]
+#[case::missing_demand(
+    |trace: &mut RailTrace| trace.snapshots[1].passengers.clear(),
+    AnalysisError::InconsistentDemands { snapshot_index: 1 },
+)]
+#[case::invalid_passenger_counts(
+    |trace: &mut RailTrace| trace.snapshots[1].passengers[0].onboard = 1,
+    AnalysisError::InvalidPassengerCounts { demand_index: 0 },
+)]
+#[case::wrong_final_stop_index(
+    |trace: &mut RailTrace| {
+        trace.snapshots[2].position = RailPosition::Complete {
             stop_index: 2,
             node: NodeId(3),
-        },
-        RailPosition::Complete {
+        };
+    },
+    AnalysisError::InvalidStopSequence { snapshot_index: 2 },
+)]
+#[case::wrong_final_node(
+    |trace: &mut RailTrace| {
+        trace.snapshots[2].position = RailPosition::Complete {
             stop_index: 1,
             node: NodeId(99),
-        },
-    ] {
-        let mut invalid = trace.clone();
-        invalid.snapshots[2].position = position;
-
-        cases.push((
-            invalid,
-            AnalysisError::InvalidStopSequence { snapshot_index: 2 },
-        ));
-    }
-
-    let mut invalid = trace.clone();
-
-    if let RailPosition::Traveling {
-        ref mut edge_index, ..
-    } = invalid.snapshots[1].position
-    {
-        *edge_index = usize::MAX;
-    }
-
-    cases.push((
-        invalid,
-        AnalysisError::InvalidStopSequence { snapshot_index: 1 },
-    ));
-
-    for (change_origin, snapshot_index) in [(true, 1), (false, 2)] {
-        let mut invalid = trace.clone();
-
-        for snapshot in &mut invalid.snapshots {
-            let demand = &mut snapshot.passengers[0].demand;
-
-            if change_origin {
-                demand.origin = NodeId(99);
-            } else {
-                demand.destination = NodeId(99);
-            }
+        };
+    },
+    AnalysisError::InvalidStopSequence { snapshot_index: 2 },
+)]
+#[case::wrong_edge_index(
+    |trace: &mut RailTrace| {
+        if let RailPosition::Traveling { ref mut edge_index, .. } = trace.snapshots[1].position {
+            *edge_index = usize::MAX;
         }
+    },
+    AnalysisError::InvalidStopSequence { snapshot_index: 1 },
+)]
+#[case::boarding_at_wrong_origin(
+    |trace: &mut RailTrace| {
+        for snapshot in &mut trace.snapshots {
+            snapshot.passengers[0].demand.origin = NodeId(99);
+        }
+    },
+    AnalysisError::InvalidPassengerTransition { snapshot_index: 1, demand_index: 0 },
+)]
+#[case::alighting_at_wrong_destination(
+    |trace: &mut RailTrace| {
+        for snapshot in &mut trace.snapshots {
+            snapshot.passengers[0].demand.destination = NodeId(99);
+        }
+    },
+    AnalysisError::InvalidPassengerTransition { snapshot_index: 2, demand_index: 0 },
+)]
+#[case::arrival_before_boarding(
+    |trace: &mut RailTrace| {
+        trace.snapshots[1].passengers[0].onboard = 1;
+        trace.snapshots[1].passengers[0].arrived = 1;
+    },
+    AnalysisError::InvalidPassengerTransition { snapshot_index: 1, demand_index: 0 },
+)]
+#[case::unserved_before_completion(
+    |trace: &mut RailTrace| {
+        trace.snapshots[1].passengers[0].onboard = 0;
+        trace.snapshots[1].passengers[0].unserved = 2;
+        trace.snapshots[2].passengers[0].arrived = 0;
+        trace.snapshots[2].passengers[0].unserved = 2;
+    },
+    AnalysisError::InvalidPassengerTransition { snapshot_index: 1, demand_index: 0 },
+)]
+fn stop_activity_requires_full_recording_and_consistent_stop_and_passenger_data(
+    #[case] invalidate: fn(&mut RailTrace),
+    #[case] error: AnalysisError,
+) {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    invalidate(&mut trace);
 
-        cases.push((
-            invalid,
-            AnalysisError::InvalidPassengerTransition {
-                snapshot_index,
-                demand_index: 0,
-            },
-        ));
-    }
+    let before = trace.clone();
 
-    let mut invalid = trace.clone();
-    invalid.snapshots[1].passengers[0].onboard = 1;
-    invalid.snapshots[1].passengers[0].arrived = 1;
-
-    cases.push((
-        invalid,
-        AnalysisError::InvalidPassengerTransition {
-            snapshot_index: 1,
-            demand_index: 0,
-        },
-    ));
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[1].passengers[0].onboard = 0;
-    invalid.snapshots[1].passengers[0].unserved = 2;
-    invalid.snapshots[2].passengers[0].arrived = 0;
-    invalid.snapshots[2].passengers[0].unserved = 2;
-
-    cases.push((
-        invalid,
-        AnalysisError::InvalidPassengerTransition {
-            snapshot_index: 1,
-            demand_index: 0,
-        },
-    ));
-
-    for (invalid, error) in cases {
-        let before = invalid.clone();
-        assert_eq!(analyze(&invalid), Err(error));
-        assert_eq!(StopActivity::from_trace(&invalid), Err(error));
-        assert_eq!(invalid, before);
-    }
+    assert_eq!(analyze(&trace), Err(error));
+    assert_eq!(StopActivity::from_trace(&trace), Err(error));
+    assert_eq!(trace, before);
 }
 
 #[rstest]
