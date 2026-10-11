@@ -1,3 +1,4 @@
+use rstest::rstest;
 use urbanflow::demand::Demand;
 use urbanflow::rail::{
     RailPassengerError, RailPassengers, RailPosition, RailRoute, RailStepError, RailVehicle,
@@ -131,40 +132,41 @@ fn trace_retains_initial_and_each_tick_in_deterministic_order() {
     }
 }
 
-#[test]
-fn tick_limits_include_initial_frame_and_report_completion_at_the_boundary() {
-    for (limit, last_tick, completed) in [
-        (0, 0, false),
-        (1, 1, false),
-        (5, 5, false),
-        (6, 6, true),
-        (7, 6, true),
-        (u64::MAX, 6, true),
-    ] {
-        let (mut vehicle, mut clock, mut passengers) = service();
-        let initial = vehicle.snapshot(&clock, &passengers).unwrap();
-        let trace = vehicle
-            .record_trace(&mut clock, &mut passengers, limit)
-            .unwrap();
+#[rstest]
+#[case::zero_ticks(0, 0, false)]
+#[case::first_tick(1, 1, false)]
+#[case::before_completion(5, 5, false)]
+#[case::exact_completion(6, 6, true)]
+#[case::after_completion(7, 6, true)]
+#[case::maximum_limit(u64::MAX, 6, true)]
+fn tick_limits_include_initial_frame_and_report_completion_at_the_boundary(
+    #[case] limit: u64,
+    #[case] last_tick: u64,
+    #[case] completed: bool,
+) {
+    let (mut vehicle, mut clock, mut passengers) = service();
+    let initial = vehicle.snapshot(&clock, &passengers).unwrap();
+    let trace = vehicle
+        .record_trace(&mut clock, &mut passengers, limit)
+        .unwrap();
 
-        assert_eq!(trace.completed, completed);
-        assert_eq!(trace.snapshots.len(), last_tick as usize + 1);
-        assert_eq!(trace.snapshots[0], initial);
-        assert_eq!(clock.tick(), last_tick);
-        assert_eq!(vehicle.state() == RailVehicleState::Complete, completed);
-        assert_eq!(
-            trace.snapshots.last().unwrap(),
-            &vehicle.snapshot(&clock, &passengers).unwrap()
+    assert_eq!(trace.completed, completed);
+    assert_eq!(trace.snapshots.len(), last_tick as usize + 1);
+    assert_eq!(trace.snapshots[0], initial);
+    assert_eq!(clock.tick(), last_tick);
+    assert_eq!(vehicle.state() == RailVehicleState::Complete, completed);
+    assert_eq!(
+        trace.snapshots.last().unwrap(),
+        &vehicle.snapshot(&clock, &passengers).unwrap()
+    );
+
+    if !completed {
+        assert!(
+            passengers
+                .records()
+                .iter()
+                .all(|record| record.unserved == 0)
         );
-
-        if !completed {
-            assert!(
-                passengers
-                    .records()
-                    .iter()
-                    .all(|record| record.unserved == 0)
-            );
-        }
     }
 }
 
@@ -205,28 +207,28 @@ fn recording_can_continue_from_a_nonzero_tick_without_changing_retained_frames()
     }
 }
 
-#[test]
-fn initial_snapshot_and_tick_errors_are_propagated_without_mutation() {
-    for (amounts, error) in [
-        ([3, 0], RailPassengerError::CapacityExceeded),
-        ([u32::MAX, 1], RailPassengerError::CountOverflow),
-    ] {
-        let (mut vehicle, mut clock, _) = service();
-        let mut passengers = RailPassengers::new(&[
-            Demand::new(NodeId(8), NodeId(3), amounts[0]),
-            Demand::new(NodeId(8), NodeId(3), amounts[1]),
-        ]);
+#[rstest]
+#[case::capacity_exceeded([3, 0], RailPassengerError::CapacityExceeded)]
+#[case::count_overflow([u32::MAX, 1], RailPassengerError::CountOverflow)]
+fn initial_snapshot_and_tick_errors_are_propagated_without_mutation(
+    #[case] amounts: [u32; 2],
+    #[case] error: RailPassengerError,
+) {
+    let (mut vehicle, mut clock, _) = service();
+    let mut passengers = RailPassengers::new(&[
+        Demand::new(NodeId(8), NodeId(3), amounts[0]),
+        Demand::new(NodeId(8), NodeId(3), amounts[1]),
+    ]);
 
-        passengers.board(0, amounts[0]).unwrap();
-        passengers.board(1, amounts[1]).unwrap();
+    passengers.board(0, amounts[0]).unwrap();
+    passengers.board(1, amounts[1]).unwrap();
 
-        let before = (vehicle.clone(), passengers.clone());
+    let before = (vehicle.clone(), passengers.clone());
 
-        assert_eq!(
-            vehicle.record_trace(&mut clock, &mut passengers, 10),
-            Err(RailStepError::Passengers(error))
-        );
-        assert_eq!((vehicle, passengers), before);
-        assert_eq!(clock.tick(), 0);
-    }
+    assert_eq!(
+        vehicle.record_trace(&mut clock, &mut passengers, 10),
+        Err(RailStepError::Passengers(error))
+    );
+    assert_eq!((vehicle, passengers), before);
+    assert_eq!(clock.tick(), 0);
 }
