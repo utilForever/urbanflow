@@ -1,3 +1,4 @@
+use rstest::rstest;
 use urbanflow::rail::{RailInitError, RailRoute, RailVehicle, RailVehicleState};
 use urbanflow::world::{EdgeId, EdgeKind, Network, NodeId};
 
@@ -91,22 +92,21 @@ fn rail_vehicle_starts_at_the_first_stop() {
     assert_eq!(edge.from, NodeId(0));
 }
 
-#[test]
-fn rail_vehicle_rejects_zero_configuration_values() {
+#[rstest]
+#[case::zero_capacity(0, 1, 1, RailInitError::InvalidCapacity)]
+#[case::zero_travel_ticks(1, 0, 1, RailInitError::InvalidTravelTicks)]
+#[case::zero_dwell_ticks(1, 1, 0, RailInitError::InvalidDwellTicks)]
+fn rail_vehicle_rejects_zero_configuration_values(
+    #[case] capacity: u32,
+    #[case] travel: u64,
+    #[case] dwell: u64,
+    #[case] error: RailInitError,
+) {
     let mut network = Network::new();
     let edge = network
         .add_edge(NodeId(0), NodeId(1), EdgeKind::Rail)
         .unwrap();
     let route = RailRoute::new(&network, vec![edge]).unwrap();
 
-    for (capacity, travel, dwell, error) in [
-        (0, 1, 1, RailInitError::InvalidCapacity),
-        (1, 0, 1, RailInitError::InvalidTravelTicks),
-        (1, 1, 0, RailInitError::InvalidDwellTicks),
-    ] {
-        assert_eq!(
-            RailVehicle::new(route.clone(), capacity, travel, dwell),
-            Err(error)
-        );
-    }
+    assert_eq!(RailVehicle::new(route, capacity, travel, dwell), Err(error));
 }

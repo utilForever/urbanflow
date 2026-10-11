@@ -1,3 +1,4 @@
+use rstest::rstest;
 use urbanflow::action::Action;
 use urbanflow::demand::Demand;
 use urbanflow::env::{Env, InitError, StepError};
@@ -666,21 +667,18 @@ fn initial_inputs_accept_known_demand_and_positive_finite_budget() {
     assert_eq!(Env::validate_inputs(&toy_city(), &demands, 100.0), Ok(()));
 }
 
-#[test]
-fn initial_inputs_reject_negative_or_non_finite_budget() {
+#[rstest]
+#[case::negative_finite(-f64::MIN_POSITIVE)]
+#[case::negative_infinity(f64::NEG_INFINITY)]
+#[case::positive_infinity(f64::INFINITY)]
+#[case::nan(f64::NAN)]
+fn initial_inputs_reject_negative_or_non_finite_budget(#[case] budget: f64) {
     let world = toy_city();
 
-    for budget in [
-        -f64::MIN_POSITIVE,
-        f64::NEG_INFINITY,
-        f64::INFINITY,
-        f64::NAN,
-    ] {
-        assert_eq!(
-            Env::validate_inputs(&world, &[], budget),
-            Err(InitError::InvalidBudget)
-        );
-    }
+    assert_eq!(
+        Env::validate_inputs(&world, &[], budget),
+        Err(InitError::InvalidBudget)
+    );
 }
 
 #[test]

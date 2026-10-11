@@ -238,6 +238,8 @@ These examples use a fixed seed and one decision per episode to demonstrate the 
 
 ## Development
 
+The zero Rail configuration and invalid environment budget matrices use named `rstest` cases so each input can be identified and rerun independently, for example `cargo test --test rail_state zero_capacity` or `cargo test --test env_state negative_finite`. `rstest` is a dev-dependency with default features disabled; these synchronous cases need neither async timeouts nor crate renaming. Keep ordinary tests where they are clearer, and compare readability and clean build cost before expanding this pilot.
+
 Read [AGENTS.md](AGENTS.md) for repository rules and validation commands, and [Architecture](ARCHITECTURE.md#module-map) for module responsibilities. Generate and browse API documentation with:
 
 ```bash
