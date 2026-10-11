@@ -57,67 +57,57 @@ fn analysis_errors_support_standard_error_propagation_and_diagnostics() {
     }
 }
 
-#[test]
-fn analyses_reject_invalid_recordings_without_mutation() {
-    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
-    let mut cases = vec![(
-        RailTrace {
-            snapshots: vec![],
-            completed: true,
-        },
-        AnalysisError::EmptyTrace,
-    )];
+#[rstest]
+#[case::empty(
+    |trace: &mut RailTrace| trace.snapshots.clear(),
+    AnalysisError::EmptyTrace,
+)]
+#[case::incomplete(
+    |trace: &mut RailTrace| trace.completed = false,
+    AnalysisError::IncompleteTrace,
+)]
+#[case::missing_terminal(
+    |trace: &mut RailTrace| {
+        trace.snapshots.pop();
+    },
+    AnalysisError::IncompleteTrace,
+)]
+#[case::duplicate_intermediate_tick(
+    |trace: &mut RailTrace| trace.snapshots[1].tick = 0,
+    AnalysisError::InvalidTickOrder { snapshot_index: 1 },
+)]
+#[case::backward_terminal_tick(
+    |trace: &mut RailTrace| trace.snapshots[2].tick = 0,
+    AnalysisError::InvalidTickOrder { snapshot_index: 2 },
+)]
+#[case::duplicate_terminal_tick(
+    |trace: &mut RailTrace| trace.snapshots[2].tick = 1,
+    AnalysisError::InvalidTickOrder { snapshot_index: 2 },
+)]
+#[case::intermediate_tick_gap(
+    |trace: &mut RailTrace| trace.snapshots[1].tick = 3,
+    AnalysisError::NonContiguousTicks { snapshot_index: 1 },
+)]
+#[case::terminal_tick_gap(
+    |trace: &mut RailTrace| trace.snapshots[2].tick = u64::MAX,
+    AnalysisError::NonContiguousTicks { snapshot_index: 2 },
+)]
+#[case::unfinished_passengers(
+    |trace: &mut RailTrace| trace.snapshots[2].passengers[0].waiting = 1,
+    AnalysisError::UnfinishedPassengers { demand_index: 0 },
+)]
+#[case::invalid_terminal_counts(
+    |trace: &mut RailTrace| trace.snapshots[2].passengers[0].arrived = 1,
+    AnalysisError::InvalidPassengerCounts { demand_index: 0 },
+)]
+fn analyses_reject_invalid_recordings_without_mutation(
+    #[case] invalidate: fn(&mut RailTrace),
+    #[case] error: AnalysisError,
+) {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    invalidate(&mut trace);
 
-    let mut invalid = trace.clone();
-    invalid.completed = false;
-
-    cases.push((invalid, AnalysisError::IncompleteTrace));
-
-    let mut invalid = trace.clone();
-    invalid.snapshots.pop();
-
-    cases.push((invalid, AnalysisError::IncompleteTrace));
-
-    for (snapshot_index, tick, error) in [
-        (1, 0, AnalysisError::InvalidTickOrder { snapshot_index: 1 }),
-        (2, 0, AnalysisError::InvalidTickOrder { snapshot_index: 2 }),
-        (2, 1, AnalysisError::InvalidTickOrder { snapshot_index: 2 }),
-        (
-            1,
-            3,
-            AnalysisError::NonContiguousTicks { snapshot_index: 1 },
-        ),
-        (
-            2,
-            u64::MAX,
-            AnalysisError::NonContiguousTicks { snapshot_index: 2 },
-        ),
-    ] {
-        let mut invalid = trace.clone();
-        invalid.snapshots[snapshot_index].tick = tick;
-
-        cases.push((invalid, error));
-    }
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[2].passengers[0].waiting = 1;
-
-    cases.push((
-        invalid,
-        AnalysisError::UnfinishedPassengers { demand_index: 0 },
-    ));
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[2].passengers[0].arrived = 1;
-
-    cases.push((
-        invalid,
-        AnalysisError::InvalidPassengerCounts { demand_index: 0 },
-    ));
-
-    for (invalid, error) in cases {
-        assert_trace_error(&invalid, error);
-    }
+    assert_trace_error(&trace, error);
 }
 
 #[test]
