@@ -238,7 +238,7 @@ These examples use a fixed seed and one decision per episode to demonstrate the 
 
 ## Development
 
-Rail movement tests use the small vehicle constructor in [`tests/support`](tests/support/mod.rs), which inserts directed Rail edges in stop order. Each caller supplies its stops, capacity, and travel/dwell durations and keeps its own demands and expected results. Scenarios with deliberate edge insertion order, reused edges, or constructor errors keep their setup local.
+Rail movement and passenger tests share the small vehicle constructor in [`tests/support`](tests/support/mod.rs), which inserts directed Rail edges in stop order. Each caller supplies its stops, capacity, and travel/dwell durations and keeps its own demands and expected results. Scenarios with deliberate edge insertion order, reused edges, or constructor errors keep their setup local.
 
 Input matrices for network queries, world and environment validation, Rail configuration and movement, trace limits, and operational analysis use named `rstest` cases so each input can be identified and rerun independently, for example `cargo test --test rail_state zero_capacity` or `cargo test --test rail_trace exact_completion`. `rstest` is a dev-dependency with default features disabled; these synchronous cases need neither async timeouts nor crate renaming. Keep sequential state transitions, deterministic replay, and complex trace mutations in ordinary tests where they are clearer, and compare readability and clean build cost before expanding parameterization.
 
