@@ -628,31 +628,30 @@ fn initialization_errors_distinguish_invalid_input_sources() {
     assert_eq!(InitError::InvalidBudget, InitError::InvalidBudget);
 }
 
-#[test]
-fn initial_inputs_reject_the_first_unknown_demand_endpoint() {
+#[rstest]
+#[case::origin_before_destination_and_later_demands(
+    vec![
+        Demand::new(NodeId(99), NodeId(98), 10),
+        Demand::new(NodeId(97), NodeId(0), 20),
+    ],
+    NodeId(99),
+)]
+#[case::destination_before_later_demands(
+    vec![
+        Demand::new(NodeId(0), NodeId(99), 10),
+        Demand::new(NodeId(98), NodeId(1), 20),
+    ],
+    NodeId(99),
+)]
+fn initial_inputs_reject_the_first_unknown_demand_endpoint(
+    #[case] demands: Vec<Demand>,
+    #[case] unknown: NodeId,
+) {
     let world = toy_city();
-
-    for (demands, unknown) in [
-        (
-            vec![
-                Demand::new(NodeId(99), NodeId(98), 10),
-                Demand::new(NodeId(97), NodeId(0), 20),
-            ],
-            NodeId(99),
-        ),
-        (
-            vec![
-                Demand::new(NodeId(0), NodeId(99), 10),
-                Demand::new(NodeId(98), NodeId(1), 20),
-            ],
-            NodeId(99),
-        ),
-    ] {
-        assert_eq!(
-            Env::validate_inputs(&world, &demands, 100.0),
-            Err(InitError::UnknownDemandEndpoint(unknown))
-        );
-    }
+    assert_eq!(
+        Env::validate_inputs(&world, &demands, 100.0),
+        Err(InitError::UnknownDemandEndpoint(unknown))
+    );
 }
 
 #[test]
@@ -695,30 +694,16 @@ fn initial_inputs_validate_topology_before_demands_and_budget() {
     );
 }
 
-#[test]
-fn unknown_node_from_does_not_advance_the_environment() {
+#[rstest]
+#[case::unknown_origin(NodeId(99), NodeId(2))]
+#[case::unknown_destination(NodeId(1), NodeId(99))]
+fn unknown_node_does_not_advance_the_environment(#[case] from: NodeId, #[case] to: NodeId) {
     let env = reset_env();
-
     assert_rejected_step_does_not_mutate(
         env,
         Action::AddEdge {
-            from: NodeId(99),
-            to: NodeId(2),
-            kind: EdgeKind::Road,
-        },
-        StepError::UnknownNode(NodeId(99)),
-    );
-}
-
-#[test]
-fn unknown_node_to_does_not_advance_the_environment() {
-    let env = reset_env();
-
-    assert_rejected_step_does_not_mutate(
-        env,
-        Action::AddEdge {
-            from: NodeId(1),
-            to: NodeId(99),
+            from,
+            to,
             kind: EdgeKind::Road,
         },
         StepError::UnknownNode(NodeId(99)),
