@@ -188,105 +188,88 @@ fn passenger_outcomes_require_conservation_per_terminal_demand(
     assert_eq!(trace, before);
 }
 
-#[test]
-fn passenger_times_reject_invalid_recordings_without_mutation() {
-    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
-    let mut cases = vec![(
-        RailTrace {
-            snapshots: vec![],
-            completed: true,
-        },
-        AnalysisError::EmptyTrace,
-    )];
+#[rstest]
+#[case::empty(
+    |trace: &mut RailTrace| trace.snapshots.clear(),
+    AnalysisError::EmptyTrace,
+)]
+#[case::incomplete(
+    |trace: &mut RailTrace| trace.completed = false,
+    AnalysisError::IncompleteTrace,
+)]
+#[case::changed_demand(
+    |trace: &mut RailTrace| trace.snapshots[1].passengers[0].demand.origin = NodeId(99),
+    AnalysisError::InconsistentDemands { snapshot_index: 1 },
+)]
+#[case::missing_demand(
+    |trace: &mut RailTrace| trace.snapshots[1].passengers.clear(),
+    AnalysisError::InconsistentDemands { snapshot_index: 1 },
+)]
+#[case::invalid_initial_counts(
+    |trace: &mut RailTrace| trace.snapshots[0].passengers[0].waiting = 1,
+    AnalysisError::InvalidPassengerCounts { demand_index: 0 },
+)]
+#[case::arrival_before_boarding(
+    |trace: &mut RailTrace| {
+        trace.snapshots[1].passengers[0].onboard = 1;
+        trace.snapshots[1].passengers[0].arrived = 1;
+    },
+    AnalysisError::InvalidPassengerTransition { snapshot_index: 1, demand_index: 0 },
+)]
+#[case::unserved_before_completion(
+    |trace: &mut RailTrace| {
+        trace.snapshots[1].passengers[0].onboard = 1;
+        trace.snapshots[1].passengers[0].unserved = 1;
+        trace.snapshots[2].passengers[0].arrived = 1;
+        trace.snapshots[2].passengers[0].unserved = 1;
+    },
+    AnalysisError::InvalidPassengerTransition { snapshot_index: 1, demand_index: 0 },
+)]
+#[case::unfinished_passengers(
+    |trace: &mut RailTrace| {
+        trace.snapshots[2].passengers[0].arrived = 1;
+        trace.snapshots[2].passengers[0].waiting = 1;
+    },
+    AnalysisError::UnfinishedPassengers { demand_index: 0 },
+)]
+fn passenger_times_reject_invalid_recordings_without_mutation(
+    #[case] invalidate: fn(&mut RailTrace),
+    #[case] error: AnalysisError,
+) {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    invalidate(&mut trace);
 
-    let mut incomplete = trace.clone();
-    incomplete.completed = false;
+    assert_trace_error(&trace, error);
+}
 
-    cases.push((incomplete, AnalysisError::IncompleteTrace));
+#[rstest]
+#[case::onboard_returns_to_waiting(1, 0, 0)]
+#[case::arrived_returns_to_waiting(0, 1, 0)]
+#[case::unserved_returns_to_waiting(0, 0, 1)]
+fn analyses_reject_backward_passenger_transitions(
+    #[case] onboard: u32,
+    #[case] arrived: u32,
+    #[case] unserved: u32,
+) {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    trace.snapshots[1].passengers[0] = trace.snapshots[0].passengers[0];
+    trace.snapshots[1].occupancy = 0;
 
-    for missing in [false, true] {
-        let mut invalid = trace.clone();
+    let record = &mut trace.snapshots[0].passengers[0];
+    record.waiting = 1;
+    record.onboard = onboard;
+    record.arrived = arrived;
+    record.unserved = unserved;
 
-        if missing {
-            invalid.snapshots[1].passengers.clear();
-        } else {
-            invalid.snapshots[1].passengers[0].demand.origin = NodeId(99);
-        }
+    trace.snapshots[0].occupancy = onboard;
 
-        cases.push((
-            invalid,
-            AnalysisError::InconsistentDemands { snapshot_index: 1 },
-        ));
-    }
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[0].passengers[0].waiting = 1;
-
-    cases.push((
-        invalid,
-        AnalysisError::InvalidPassengerCounts { demand_index: 0 },
-    ));
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[1].passengers[0].onboard = 1;
-    invalid.snapshots[1].passengers[0].arrived = 1;
-
-    cases.push((
-        invalid,
+    assert_trace_error(
+        &trace,
         AnalysisError::InvalidPassengerTransition {
             snapshot_index: 1,
             demand_index: 0,
         },
-    ));
-
-    for (waiting, onboard, arrived, unserved) in [(1, 1, 0, 0), (1, 0, 1, 0), (1, 0, 0, 1)] {
-        let mut invalid = trace.clone();
-
-        let record = &mut invalid.snapshots[0].passengers[0];
-        record.waiting = waiting;
-        record.onboard = onboard;
-        record.arrived = arrived;
-        record.unserved = unserved;
-
-        invalid.snapshots[0].occupancy = onboard;
-        invalid.snapshots[1].passengers[0] = trace.snapshots[0].passengers[0];
-        invalid.snapshots[1].occupancy = 0;
-
-        cases.push((
-            invalid,
-            AnalysisError::InvalidPassengerTransition {
-                snapshot_index: 1,
-                demand_index: 0,
-            },
-        ));
-    }
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[1].passengers[0].onboard = 1;
-    invalid.snapshots[1].passengers[0].unserved = 1;
-    invalid.snapshots[2].passengers[0].arrived = 1;
-    invalid.snapshots[2].passengers[0].unserved = 1;
-
-    cases.push((
-        invalid,
-        AnalysisError::InvalidPassengerTransition {
-            snapshot_index: 1,
-            demand_index: 0,
-        },
-    ));
-
-    let mut invalid = trace.clone();
-    invalid.snapshots[2].passengers[0].arrived = 1;
-    invalid.snapshots[2].passengers[0].waiting = 1;
-
-    cases.push((
-        invalid,
-        AnalysisError::UnfinishedPassengers { demand_index: 0 },
-    ));
-
-    for (invalid, error) in cases {
-        assert_trace_error(&invalid, error);
-    }
+    );
 }
 
 #[test]
