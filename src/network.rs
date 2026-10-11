@@ -139,6 +139,8 @@ impl ConnectivityIndex {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::world::EdgeKind;
 
@@ -148,17 +150,23 @@ mod tests {
         net.add_edge(NodeId(0), NodeId(1), EdgeKind::Road).unwrap();
         net.add_edge(NodeId(1), NodeId(2), EdgeKind::Road).unwrap();
         net.add_edge(NodeId(2), NodeId(3), EdgeKind::Road).unwrap();
+
         ConnectivityIndex::from_network(&net)
     }
 
-    #[test]
-    fn test_direct_edge_is_reachable() {
-        assert!(line_index().is_reachable(NodeId(0), NodeId(1)));
-    }
-
-    #[test]
-    fn test_multi_hop_is_reachable() {
-        assert!(line_index().is_reachable(NodeId(0), NodeId(3)));
+    #[rstest]
+    #[case::direct_edge(NodeId(0), NodeId(1), true)]
+    #[case::multiple_hops(NodeId(0), NodeId(3), true)]
+    #[case::reverse_direction(NodeId(3), NodeId(0), false)]
+    #[case::same_node(NodeId(2), NodeId(2), true)]
+    #[case::unknown_destination(NodeId(0), NodeId(99), false)]
+    #[case::unknown_same_node(NodeId(99), NodeId(99), false)]
+    fn test_reachability_on_a_directed_line(
+        #[case] from: NodeId,
+        #[case] to: NodeId,
+        #[case] reachable: bool,
+    ) {
+        assert_eq!(line_index().is_reachable(from, to), reachable);
     }
 
     #[test]
@@ -187,20 +195,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_path_distinguishes_empty_path_from_no_path() {
+    #[rstest]
+    #[case::same_node(NodeId(2), NodeId(2), Some(Vec::new()))]
+    #[case::reverse_direction(NodeId(3), NodeId(0), None)]
+    #[case::unknown_destination(NodeId(0), NodeId(99), None)]
+    #[case::unknown_same_node(NodeId(99), NodeId(99), None)]
+    fn test_path_distinguishes_empty_path_from_no_path(
+        #[case] from: NodeId,
+        #[case] to: NodeId,
+        #[case] path: Option<Vec<EdgeId>>,
+    ) {
         let idx = line_index();
-
-        assert_eq!(idx.path(NodeId(2), NodeId(2)), Some(Vec::new()));
-        assert_eq!(idx.path(NodeId(3), NodeId(0)), None);
-        assert_eq!(idx.path(NodeId(0), NodeId(99)), None);
-        assert_eq!(idx.path(NodeId(99), NodeId(99)), None);
-    }
-
-    #[test]
-    fn test_reachability_follows_edge_direction() {
-        // The line only points forward, so 3 cannot reach 0.
-        assert!(!line_index().is_reachable(NodeId(3), NodeId(0)));
+        assert_eq!(idx.path(from, to), path);
     }
 
     #[test]
@@ -219,18 +225,6 @@ mod tests {
         net.add_edge(NodeId(0), NodeId(1), EdgeKind::Road).unwrap();
         net.add_edge(NodeId(2), NodeId(3), EdgeKind::Rail).unwrap(); // separate component
         assert!(!ConnectivityIndex::from_network(&net).is_reachable(NodeId(0), NodeId(3)));
-    }
-
-    #[test]
-    fn test_node_reaches_itself() {
-        assert!(line_index().is_reachable(NodeId(2), NodeId(2)));
-    }
-
-    #[test]
-    fn test_unknown_node_is_unreachable() {
-        let idx = line_index();
-        assert!(!idx.is_reachable(NodeId(0), NodeId(99)));
-        assert!(!idx.is_reachable(NodeId(99), NodeId(99)));
     }
 
     #[test]
@@ -256,12 +250,12 @@ mod tests {
         assert!(!idx.is_reachable(middling, highest));
     }
 
-    #[test]
-    fn test_can_serve_demand() {
+    #[rstest]
+    #[case::outbound(Demand::new(NodeId(0), NodeId(3), 10), true)]
+    #[case::return_trip(Demand::new(NodeId(3), NodeId(0), 10), false)]
+    #[case::unknown_destination(Demand::new(NodeId(0), NodeId(99), 10), false)]
+    fn test_can_serve_demand(#[case] demand: Demand, #[case] served: bool) {
         let idx = line_index();
-        assert!(idx.can_serve(&Demand::new(NodeId(0), NodeId(3), 10)));
-        // The return trip is a separate demand, and needs its own edges.
-        assert!(!idx.can_serve(&Demand::new(NodeId(3), NodeId(0), 10)));
-        assert!(!idx.can_serve(&Demand::new(NodeId(0), NodeId(99), 10)));
+        assert_eq!(idx.can_serve(&demand), served);
     }
 }

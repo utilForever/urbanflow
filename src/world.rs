@@ -152,6 +152,8 @@ pub fn toy_city() -> ToyCity {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
     #[test]
@@ -209,26 +211,27 @@ mod tests {
         );
     }
 
-    #[test]
-    fn world_topology_rejects_unknown_edge_endpoints() {
-        for (from, to, unknown) in [
-            (NodeId(99), NodeId(1), NodeId(99)),
-            (NodeId(1), NodeId(99), NodeId(99)),
-            (NodeId(98), NodeId(99), NodeId(98)),
-        ] {
-            let mut network = Network::new();
-            network.add_edge(from, to, EdgeKind::Road).unwrap();
+    #[rstest]
+    #[case::unknown_origin(NodeId(99), NodeId(1), NodeId(99))]
+    #[case::unknown_destination(NodeId(1), NodeId(99), NodeId(99))]
+    #[case::origin_before_destination(NodeId(98), NodeId(99), NodeId(98))]
+    fn world_topology_rejects_unknown_edge_endpoints(
+        #[case] from: NodeId,
+        #[case] to: NodeId,
+        #[case] unknown: NodeId,
+    ) {
+        let mut network = Network::new();
+        network.add_edge(from, to, EdgeKind::Road).unwrap();
 
-            let world = World {
-                nodes: vec![Node { id: NodeId(1) }, Node { id: NodeId(2) }],
-                network,
-            };
+        let world = World {
+            nodes: vec![Node { id: NodeId(1) }, Node { id: NodeId(2) }],
+            network,
+        };
 
-            assert_eq!(
-                world.validate_topology(),
-                Err(crate::env::InitError::UnknownEdgeEndpoint(unknown))
-            );
-        }
+        assert_eq!(
+            world.validate_topology(),
+            Err(crate::env::InitError::UnknownEdgeEndpoint(unknown))
+        );
     }
 
     #[test]
@@ -268,12 +271,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn edge_kinds_expose_capacity_and_construction_cost() {
-        assert_eq!(EdgeKind::Road.capacity(), 10);
-        assert_eq!(EdgeKind::Rail.capacity(), 20);
-        assert_eq!(EdgeKind::Road.construction_cost(), 1.0);
-        assert_eq!(EdgeKind::Rail.construction_cost(), 2.0);
+    #[rstest]
+    #[case::road(EdgeKind::Road, 10, 1.0)]
+    #[case::rail(EdgeKind::Rail, 20, 2.0)]
+    fn edge_kinds_expose_capacity_and_construction_cost(
+        #[case] kind: EdgeKind,
+        #[case] capacity: u32,
+        #[case] cost: f64,
+    ) {
+        assert_eq!(kind.capacity(), capacity);
+        assert_eq!(kind.construction_cost(), cost);
     }
 
     #[test]
