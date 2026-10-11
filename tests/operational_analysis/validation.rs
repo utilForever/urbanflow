@@ -330,67 +330,71 @@ fn analyses_check_every_passenger_record_and_sum_onboard_without_wrapping() {
     );
 }
 
-#[test]
-fn vehicle_occupancy_rejects_invalid_recordings_without_mutation() {
-    let trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
-    let mut cases = vec![(
-        RailTrace {
-            snapshots: vec![],
-            completed: true,
+#[rstest]
+#[case::empty(
+    |trace: &mut RailTrace| trace.snapshots.clear(),
+    AnalysisError::EmptyTrace,
+)]
+#[case::incomplete(
+    |trace: &mut RailTrace| trace.completed = false,
+    AnalysisError::IncompleteTrace,
+)]
+#[case::missing_terminal(
+    |trace: &mut RailTrace| {
+        trace.snapshots.pop();
+    },
+    AnalysisError::IncompleteTrace,
+)]
+#[case::unfinished_passengers(
+    |trace: &mut RailTrace| trace.snapshots[2].passengers[0].waiting = 1,
+    AnalysisError::UnfinishedPassengers { demand_index: 0 },
+)]
+fn vehicle_occupancy_rejects_invalid_recordings_without_mutation(
+    #[case] invalidate: fn(&mut RailTrace),
+    #[case] error: AnalysisError,
+) {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    invalidate(&mut trace);
+
+    assert_trace_error(&trace, error);
+}
+
+#[rstest]
+#[case::zero_initial_capacity(0, 0, 0)]
+#[case::changed_initial_capacity(0, 7, 1)]
+#[case::zero_intermediate_capacity(1, 0, 1)]
+#[case::changed_intermediate_capacity(1, 7, 1)]
+#[case::zero_terminal_capacity(2, 0, 2)]
+#[case::changed_terminal_capacity(2, 7, 2)]
+fn analyses_reject_invalid_capacity(
+    #[case] snapshot_index: usize,
+    #[case] capacity: u32,
+    #[case] error_index: usize,
+) {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    trace.snapshots[snapshot_index].capacity = capacity;
+
+    assert_trace_error(
+        &trace,
+        AnalysisError::InvalidCapacity {
+            snapshot_index: error_index,
         },
-        AnalysisError::EmptyTrace,
-    )];
+    );
+}
 
-    let mut incomplete = trace.clone();
-    incomplete.completed = false;
+#[rstest]
+#[case::initial_above_capacity(0, 7)]
+#[case::initial_load_one(0, 1)]
+#[case::initial_load_three(0, 3)]
+#[case::intermediate_above_capacity(1, 7)]
+#[case::intermediate_below_onboard(1, 1)]
+#[case::intermediate_above_onboard(1, 3)]
+#[case::terminal_above_capacity(2, 7)]
+#[case::terminal_load_one(2, 1)]
+#[case::terminal_load_three(2, 3)]
+fn analyses_reject_invalid_occupancy(#[case] snapshot_index: usize, #[case] occupancy: u32) {
+    let mut trace = completed_trace(&[Demand::new(NodeId(8), NodeId(3), 2)], 6);
+    trace.snapshots[snapshot_index].occupancy = occupancy;
 
-    cases.push((incomplete, AnalysisError::IncompleteTrace));
-
-    let mut incomplete = trace.clone();
-    incomplete.snapshots.pop();
-
-    cases.push((incomplete, AnalysisError::IncompleteTrace));
-
-    let mut unfinished = trace.clone();
-    unfinished.snapshots[2].passengers[0].waiting = 1;
-
-    cases.push((
-        unfinished,
-        AnalysisError::UnfinishedPassengers { demand_index: 0 },
-    ));
-
-    for snapshot_index in 0..trace.snapshots.len() {
-        for capacity in [0, 7] {
-            let mut invalid = trace.clone();
-            invalid.snapshots[snapshot_index].capacity = capacity;
-
-            cases.push((
-                invalid,
-                AnalysisError::InvalidCapacity {
-                    snapshot_index: if snapshot_index == 0 && capacity != 0 {
-                        1
-                    } else {
-                        snapshot_index
-                    },
-                },
-            ));
-        }
-
-        let mut invalid = trace.clone();
-        invalid.snapshots[snapshot_index].occupancy = 7;
-
-        cases.push((invalid, AnalysisError::InvalidOccupancy { snapshot_index }));
-
-        // Mismatches in both directions remain invalid even within capacity.
-        for occupancy in [1, 3] {
-            let mut invalid = trace.clone();
-            invalid.snapshots[snapshot_index].occupancy = occupancy;
-
-            cases.push((invalid, AnalysisError::InvalidOccupancy { snapshot_index }));
-        }
-    }
-
-    for (invalid, error) in cases {
-        assert_trace_error(&invalid, error);
-    }
+    assert_trace_error(&trace, AnalysisError::InvalidOccupancy { snapshot_index });
 }
