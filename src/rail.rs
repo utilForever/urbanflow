@@ -22,6 +22,11 @@ pub struct RailRoute {
 }
 
 impl RailRoute {
+    /// Validates a nonempty sequence of connected Rail edges in supplied order.
+    ///
+    /// Owns the edge IDs and stop nodes captured from the network. Stop zero is
+    /// the first origin; stop `i > 0` is edge `i - 1`'s destination, and the final
+    /// stop index is the edge count. Repeated nodes retain separate visits.
     pub fn new(network: &Network, edges: Vec<EdgeId>) -> Result<Self, RailInitError> {
         if edges.is_empty() {
             return Err(RailInitError::EmptyRoute);
@@ -144,6 +149,10 @@ pub struct RailVehicle {
 }
 
 impl RailVehicle {
+    /// Creates a vehicle with positive capacity, travel ticks, and dwell ticks.
+    ///
+    /// Every edge uses the same travel duration, and each departure follows the
+    /// same dwell duration. Vehicle capacity is separate from edge capacity.
     pub fn new(
         route: RailRoute,
         capacity: u32,
