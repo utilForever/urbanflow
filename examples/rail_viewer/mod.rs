@@ -7,6 +7,11 @@ use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, Node, NodeId, World};
 
 /// A small recorded service; all simulation decisions stay in the core API.
+///
+/// Route `8 -> 3 -> 21 -> 5`, capacity 6, four travel ticks per edge, and two
+/// dwell ticks before departure. Records ticks 0 through 18: six of the eight
+/// passengers at node 8 arrive at node 21; the other two and all three at node 3
+/// become unserved. Final arrival adds no dwell.
 pub fn scenario() -> (World, RailTrace) {
     let mut network = Network::new();
 
@@ -52,6 +57,19 @@ pub fn scenario() -> (World, RailTrace) {
 /// no analysis, but retain their snapshots for playback and inspection. Other
 /// `analysis::analyze` errors are returned before producing HTML.
 /// All metrics come from the core.
+///
+/// The template lays out nodes clockwise in stored order and separates parallel
+/// and reverse edges. Road edges provide context only. Playback starts paused;
+/// at 1x each tick takes one second. Pause and speed changes account for elapsed
+/// time first; seeking and resetting pause. Complete and partial traces stop at
+/// their final frame, and fewer than two frames cannot play.
+///
+/// Only the marker interpolates. Tick labels and lifecycle counts use the latest
+/// reached snapshot, with `BigInt` totals across all demand records. Empty traces
+/// show unavailable status; narrow screens place status below the network.
+/// Analysis tables render once in route-visit order, retaining repeated nodes.
+/// Means use two decimal places, shares/load factors use percentages, undefined
+/// values use `N/A`, and integers keep their full precision.
 pub fn render(world: &World, trace: &RailTrace) -> Result<String, AnalysisError> {
     let analysis = match trace
         .completed

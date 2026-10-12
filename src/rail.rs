@@ -121,6 +121,8 @@ pub struct RailTrace {
     /// Initial state followed by one snapshot per successful tick.
     pub snapshots: Vec<RailSnapshot>,
     /// False when the tick limit stopped recording before service completion.
+    /// Completion means the vehicle finished its route, not that all passengers
+    /// arrived; a partial trace retains its last recorded lifecycle counts.
     pub completed: bool,
 }
 
@@ -378,9 +380,13 @@ impl RailVehicle {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PassengerState {
     pub demand: Demand,
+    /// Has not boarded, including demand the route cannot carry.
     pub waiting: u32,
+    /// Is riding the vehicle and counts toward its capacity.
     pub onboard: u32,
+    /// Has alighted at the demand's destination.
     pub arrived: u32,
+    /// Was still waiting or onboard when service ended.
     pub unserved: u32,
 }
 

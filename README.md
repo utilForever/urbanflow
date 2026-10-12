@@ -24,20 +24,14 @@
 
 ## What This Library Does
 
-`urbanflow` is a deterministic Rust library for building and evaluating urban transit networks. It currently supports:
+`urbanflow` is a deterministic Rust library for building and evaluating urban transit networks:
 
-- Caller-defined directed Road and Rail networks with capacity, passenger demand, metrics, and rewards.
-- Repeatable reinforcement learning episodes with valid actions and owned observations.
-- One fixed-route Rail vehicle with timed movement, passenger boarding and alighting, and owned snapshots and bounded traces.
-- Checked passenger outcome totals, served share, and waiting, onboard, and journey time metrics from completed Rail traces.
-- Maximum and time-weighted mean vehicle occupancy and load factors over recorded active Rail service.
-- Boarding, alighting, and remaining waiting passengers per ordered Rail stop visit.
-- Recorded Rail travel, dwell, and total active duration with the absolute completion tick.
-- Shared validation of tick continuity, passenger conservation, and vehicle occupancy before operational analysis.
-- One `analysis::analyze` operation returning all five summaries from a full Rail trace.
-- A self-contained HTML example for inspecting recorded Rail positions and completed-run operational analysis in a browser.
+- `Env` evaluates directed Road/Rail networks with demand, capacity, construction costs, and reinforcement learning rewards.
+- `rail` runs one fixed-route vehicle with timed movement, boarding, alighting, snapshots, and bounded traces.
+- `analysis` summarizes passenger outcomes and times, vehicle occupancy, stop activity, and route timing from completed Rail traces.
+- An offline HTML viewer replays traces and displays the analysis.
 
-Trams, demand-responsive transit (DRT), broader analysis tools, application integrations, and large-scale simulation are planned. See [Architecture](ARCHITECTURE.md) for current capabilities and future direction.
+Env and Rail run independently. Multiple vehicles, transfers, timetables, Tram/DRT service, road traffic, and geographic maps remain planned; see [Architecture](ARCHITECTURE.md#planned-direction).
 
 ## Quick Start
 
@@ -53,7 +47,7 @@ cargo test --all
 
 ### Environment
 
-Use `Env::new` for a caller-defined scenario or `Env::toy_city` for the built-in four-node world. `available_actions()` lists valid affordable actions; `step()` returns an observation, metrics, reward, and completion flag. `reset()` restores the initial scenario.
+Use [`Env::new`](src/env.rs) for a caller-defined scenario or `Env::toy_city` for the built-in four-node world. `available_actions()` lists valid affordable actions; `step()` returns an observation, metrics, reward, and completion flag. `reset()` restores the initial scenario.
 
 ```rust
 use urbanflow::action::Action;
@@ -74,96 +68,48 @@ let action = Action::AddEdge {
 };
 
 let first = env.step(action).unwrap();
-
 env.reset();
 
 assert_eq!(env.step(action).unwrap(), first);
 ```
 
-Metrics track served and unserved demand, congestion, and construction cost. Reward is `served demand - unserved demand - congestion - cost`. See the [simulation contracts](ARCHITECTURE.md#simulation-contracts) for allocation and ordering rules.
+Metrics report served and unserved demand, congestion, and construction cost. See [simulation contracts](ARCHITECTURE.md#simulation-contracts) for allocation and reward rules.
 
 ### Rail Trace
 
-Rail movement runs separately from `Env`. Keep the same vehicle, clock, and passenger records together throughout the service.
+Keep one vehicle, clock, and passenger set together. [`RailVehicle::record_trace`](src/rail.rs) records the initial state and each tick up to a supplied limit; `completed` means the vehicle finished its route, not that every passenger arrived. Use `advance()` and `snapshot()` for individual ticks.
 
-```rust
-use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailRoute, RailVehicle};
-use urbanflow::time::SimulationClock;
-use urbanflow::world::{EdgeKind, Network, NodeId};
-
-let mut network = Network::new();
-let edge = network.add_edge(NodeId(0), NodeId(2), EdgeKind::Rail).unwrap();
-let route = RailRoute::new(&network, vec![edge]).unwrap();
-
-// Capacity 6, one travel tick per edge, one dwell tick per stop.
-let mut vehicle = RailVehicle::new(route, 6, 1, 1).unwrap();
-let mut clock = SimulationClock::default();
-let mut passengers = RailPassengers::new(&[Demand::new(NodeId(0), NodeId(2), 10)]);
-
-let trace = vehicle.record_trace(&mut clock, &mut passengers, 2).unwrap();
-
-assert!(trace.completed);
-assert_eq!(trace.snapshots.len(), 3); // Initial state, travel, completion.
-assert_eq!(trace.snapshots[2].passengers[0].arrived, 6);
-```
-
-A trace records the initial snapshot and each subsequent tick, up to the supplied number of advances. Check `completed` to distinguish a full service replay from a run stopped by the limit. For individual ticks, use `advance()` and `snapshot()`. Timing, passenger, and error contracts are documented in the [Rail API](src/rail.rs).
+The [analysis example](examples/operational_analysis.rs) includes the complete route, vehicle, demand, and recording setup.
 
 ### Operational Analysis
 
-Use [`analysis::analyze(&trace)`](src/analysis.rs) to obtain passenger outcomes, passenger times, vehicle occupancy, stop activity, and route timing in one owned result. Record the full Rail service from its initial state through completion.
-
-Run the [executable analysis example](examples/operational_analysis.rs):
+[`analysis::analyze(&trace)`](src/analysis.rs) returns all five summaries from a full recording through completion. Run the example, which checks its results with assertions:
 
 ```bash
 cargo run --example operational_analysis
 ```
 
-It records one Rail edge with capacity 6, one travel tick, one dwell tick, and 10 requested passengers, checks all five summaries with assertions, and prints:
+Expected output:
 
 ```text
 Arrived: 6, unserved: 4, elapsed ticks: 2
 ```
 
-The [analysis API documentation](src/analysis.rs) defines units, interval accounting, undefined values, partial-history support for individual `from_trace` summaries, and errors. Generate the rendered rustdoc with `cargo doc --no-deps --open`. These summaries describe Rail service independently of `Env` allocation and rewards; the [browser viewer](#browser-viewer) displays them without changing the results.
+The [analysis rustdoc](src/analysis.rs) defines units, interval accounting, undefined values, partial-history support for individual summaries, and errors.
 
 ### Browser Viewer
-
-From the repository root, generate the fixed-route demo:
 
 ```bash
 cargo run --example rail_viewer -- rail-viewer.html
 ```
 
-Open `rail-viewer.html` directly in a modern browser. The file embeds the demo network, recorded trace, CSS, and JavaScript, so it works offline without a server or frontend installation. The optional output path defaults to `rail-viewer.html`; an existing file at that path is overwritten.
+Open the generated file directly in a modern browser; it works offline without a server. The optional output path defaults to `rail-viewer.html` and overwrites an existing file.
 
-Double-click the generated file, or open it from the same terminal with `open rail-viewer.html` on macOS, `xdg-open rail-viewer.html` on a Linux desktop, or `Start-Process .\rail-viewer.html` in Windows PowerShell.
+Use Play/Pause, Speed, Reset, and the Snapshot slider to inspect the recording. Seeking and resetting pause playback; 1× displays one tick per second. Playback never changes the simulation or analysis. The demo ends at tick 18 with 6 arrived and 5 unserved passengers.
 
-The demo runs one vehicle along `8 → 3 → 21 → 5`, with capacity 6, four travel ticks per edge, and two dwell ticks at each stop before departure. It records ticks 0 through 18, including the initial state before boarding and the final arrival without a final dwell. Running the same scenario again produces the same trace and HTML.
+The status panel follows the selected snapshot; the operational summary stays fixed. Partial recordings and completed recordings missing initial history remain viewable without analysis. Undefined summary values display `N/A`.
 
-The SVG places nodes clockwise in stored order and distinguishes directed Road and Rail edges. Use Play and Pause to watch the recorded service, Reset to return to the first snapshot and pause, and Speed to select 0.25×, 0.5×, 1×, 2×, or 4×. Playback starts paused; 1× displays one recorded tick per second and is a viewing pace, not a simulation time unit. Changing speed preserves playback progress.
-
-Use the Snapshot slider (or arrow keys while focused) to select a recorded tick and pause playback. During playback, the marker moves smoothly along the Rail edge while the tick label and slider identify the latest reached snapshot. Playback stops at the last recorded snapshot, including for partial recordings; use Reset to watch again. The badge identifies complete versus partial recordings. Interpolation changes only the displayed marker, never recorded simulation state.
-
-The Service status panel shows the selected snapshot's exact tick, vehicle state, stop index and node or directed edge, and load/capacity. Passenger totals sum waiting, onboard, arrived, and unserved counts across all demand records. These values update at recorded tick boundaries and follow playback, seeking, and reset; they are never interpolated. Empty recordings show unavailable values as dashes. On narrow screens, the panel appears below the network.
-
-| Passenger state | Meaning during this service                              |
-| --------------- | -------------------------------------------------------- |
-| Waiting         | Has not boarded; includes demand the route cannot carry. |
-| Onboard         | Is riding the vehicle and counts toward its capacity.    |
-| Arrived         | Has alighted at the demand's destination.                |
-| Unserved        | Was still waiting or onboard when service ended.         |
-
-The demo starts with 11 waiting passengers. Six board at node 8 and arrive at node 21; the remaining two at node 8 and all three at node 3 become unserved at completion. Seek to tick 18 to see 6 arrived, 5 unserved, and zero waiting or onboard. A complete recording means the vehicle finished its route, not that every passenger arrived. A partial trace retains its last recorded counts without forcing waiting passengers to become unserved.
-
-The Completed-run operational summary appears below the playback controls immediately on opening the file. Its tables show final passenger outcomes and served share, passenger time totals and means, vehicle occupancy and load factors, route timing, and boarding/alighting/remaining waiting per stop visit. These values come from Rust's `analysis::analyze` and remain fixed during playback, seeking, and reset. Repeated nodes retain separate rows in route order.
-
-Time uses simulation ticks, passenger-time totals use passenger-ticks, and passenger-time means include only arrived passengers. Means display two decimal places and shares/load factors display percentages; undefined values display `N/A`, while integer totals and completion ticks retain their full precision. Partial and empty recordings show an unavailable-analysis message. Completed recordings that start during service or contain only completion remain inspectable, with playback available when there are multiple snapshots; the summary explains that the initial service state is missing. Other analysis errors are returned during HTML generation, before the output file is written.
-
-This is one fixed-route Rail service with fixed travel and dwell durations and aggregated passenger counts, independent of `Env` rewards. Road edges provide network context only. Multiple vehicles, timetables, headways, transfers, Road traffic, congestion-driven movement, Tram/DRT vehicles, and geographic maps are not modeled by this demo.
-
-To view a different scenario, adapt [`scenario()`](examples/rail_viewer/mod.rs) and pass its world and core-produced trace to `render()`, which returns `Result<String, AnalysisError>`. The operational summary requires a completed recording of the full service from its initial state. Layout and display stay in the example; the viewer makes no simulation decisions.
+To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod.rs). Rendering and serialization stay in the example.
 
 ## Baseline RL examples
 
@@ -172,25 +118,19 @@ cargo run --example random_policy
 cargo run --example tabular_q_learning
 ```
 
-These examples use a fixed seed and one decision per episode to demonstrate the public environment API. See [training consumers](ARCHITECTURE.md#training-consumers) for their scope.
+These fixed-seed baselines use one decision per episode. See [training consumers](ARCHITECTURE.md#training-consumers) for their scope.
 
 ## Development
 
-Rail movement, passenger, and trace tests share the small vehicle constructor in [`tests/support`](tests/support/mod.rs), which inserts directed Rail edges in stop order. Each caller supplies its stops, capacity, and travel/dwell durations and keeps its own demands and expected results. Scenarios with deliberate edge insertion order, reused edges, or constructor errors keep their setup local.
-
-[`tests/operational_analysis.rs`](tests/operational_analysis.rs) keeps combined `analyze` coverage and includes focused modules in [`tests/operational_analysis`](tests/operational_analysis) for passenger outcomes, passenger times, vehicle occupancy, stop activity, and route timing. Shared trace validation lives in [`validation.rs`](tests/operational_analysis/validation.rs); result-specific boundaries stay with their summary tests. The small [`support.rs`](tests/operational_analysis/support.rs) retains the completed-trace constructor and the assertion that all six analysis entry points return the same error without mutation. Run the whole group with `cargo test --test operational_analysis`, or select a module with `cargo test --test operational_analysis validation::`. All modules also run under `cargo test --all`; the viewer end-to-end test described below remains in `tests/rail_viewer.rs`.
-
-Input matrices for network queries, world and environment validation, Rail configuration and movement, trace limits, and operational analysis use named `rstest` cases so each input can be identified and rerun independently, for example `cargo test --test rail_state zero_capacity` or `cargo test --test rail_trace exact_completion`. Independent malformed-trace mutations also use named cases instead of collecting traces in a vector; run one with `cargo test --test operational_analysis duplicate_intermediate_tick`. `rstest` is a dev-dependency with default features disabled; these synchronous cases need neither async timeouts nor crate renaming. Keep sequential state transitions, deterministic replay, and complex trace mutations in ordinary tests where they are clearer, and compare readability and clean build cost before expanding parameterization.
-
-Read [AGENTS.md](AGENTS.md) for repository rules and validation commands, and [Architecture](ARCHITECTURE.md#module-map) for module responsibilities. Generate and browse API documentation with:
+See [AGENTS.md](AGENTS.md) for validation commands and [Architecture](ARCHITECTURE.md#module-map) for module responsibilities. Browse API documentation with:
 
 ```bash
 cargo doc --no-deps --open
 ```
 
-`cargo test --test rail_viewer fixed_route_service_reaches_the_viewer_end_to_end` checks one public-API Rail service from configuration through completion, operational analysis, and HTML generation. It asserts every recorded position and passenger count, trace termination, the exact `OperationalAnalysis` across all five summaries, the full embedded data against a fixed fixture, and playback control presence. The scenario serves four of six passengers over four travel and two dwell ticks, including boarding and alighting at the middle stop. It also checks that all analysis entry points and the viewer reject an inconsistent vehicle load with the same typed error, without changing the trace. It runs as part of `cargo test --all`.
+Tests use small [Rail helpers](tests/support/mod.rs) and focused [analysis modules](tests/operational_analysis.rs). Keep edge-order and invalid-construction fixtures local. Use named synchronous `rstest` cases for input matrices and ordinary tests for stateful scenarios; prefer readability over wider parameterization. Run a subset with `cargo test --test operational_analysis validation::`.
 
-For the viewer's browser interaction tests, run `python3 -m http.server 8121 --bind 127.0.0.1` from the repository root and open [the playback test page](http://127.0.0.1:8121/tests/rail_viewer_playback.html). It checks playback and status-panel synchronization, final analysis display against the Rust-verified fixture, and narrow-screen layout using the real viewer template, DOM controls, and SVG geometry with a controlled animation clock. This separate browser check requires no frontend dependencies and is not run by `cargo test`.
+The [viewer integration test](tests/rail_viewer.rs) runs under `cargo test --all`. Browser assertions run separately: start `python3 -m http.server 8121 --bind 127.0.0.1` from the repository root and open [the playback test page](http://127.0.0.1:8121/tests/rail_viewer_playback.html). It checks controls, status, analysis, and narrow-screen layout without frontend dependencies.
 
 ## License
 
