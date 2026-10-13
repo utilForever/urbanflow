@@ -130,7 +130,14 @@ cargo doc --no-deps --open
 
 Tests use small [Rail helpers](tests/support/mod.rs) and focused [analysis modules](tests/operational_analysis.rs). Keep edge-order and invalid-construction fixtures local. Use named synchronous `rstest` cases for input matrices and ordinary tests for stateful scenarios; prefer readability over wider parameterization. Run a subset with `cargo test --test operational_analysis validation::`.
 
-The [viewer integration test](tests/rail_viewer.rs) runs under `cargo test --all`. Browser assertions run separately: start `python3 -m http.server 8121 --bind 127.0.0.1` from the repository root and open [the playback test page](http://127.0.0.1:8121/tests/rail_viewer_playback.html). It checks controls, status, analysis, and narrow-screen layout without frontend dependencies.
+The [viewer integration test](tests/rail_viewer.rs) runs under `cargo test --all`. CI also runs the browser assertions and runner failure checks. With Python 3 and Chrome installed, run them locally:
+
+```bash
+python3 tests/run_rail_viewer_playback.py
+python3 tests/test_rail_viewer_playback_runner.py
+```
+
+The default browser is `google-chrome`; set `CHROME_BIN` to another Chrome or Chromium executable path if needed. For manual inspection, run `python3 -m http.server 8121 --bind 127.0.0.1` from the repository root and open [the playback test page](http://127.0.0.1:8121/tests/rail_viewer_playback.html).
 
 ## License
 
