@@ -8,13 +8,32 @@
     // Serve the repository root, then open /tests/rail_viewer_playback.html.
     // Only the animation clock is replaced; DOM events and SVG geometry are real.
     const results = document.getElementById("results");
-    const template = await fetch("../examples/rail_viewer/viewer.html", {
-      cache: "no-store",
-    }).then((response) => response.text());
+    let failures = 0;
+    function fail(message) {
+      failures++;
+      results.textContent += `FAIL ${message}\n`;
+      document.title = "FAIL: Rail playback";
+    }
+    function watchErrors(target) {
+      target.addEventListener("error", (event) => fail(event.message));
+      target.addEventListener("unhandledrejection", (event) =>
+        fail(String(event.reason)),
+      );
+    }
+    watchErrors(window);
+    async function load(url) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok)
+        throw new Error(`Could not load ${url}: ${response.status}`);
+      return response;
+    }
+    const template = await (
+      await load("../examples/rail_viewer/viewer.html")
+    ).text();
     // This same hand-checked payload is verified against Rust in rail_viewer.rs.
-    const serviceFixture = await fetch("./fixtures/rail_service.json", {
-      cache: "no-store",
-    }).then((response) => response.json());
+    const serviceFixture = await (
+      await load("./fixtures/rail_service.json")
+    ).json();
     const stop = (index, node) => ({
       kind: "AtStop",
       stop_index: String(index),
@@ -132,15 +151,23 @@
         analysis: null,
       },
     ) {
-      iframe?.remove();
+      if (iframe) {
+        // Let pending promise rejections report before destroying their window.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        iframe.remove();
+      }
       iframe = document.createElement("iframe");
       iframe.title = "Viewer under test";
       iframe.width = "960";
       iframe.height = "800";
+      iframe.watchErrors = watchErrors;
       const ready = new Promise((resolve) => (iframe.onload = resolve));
       iframe.srcdoc = template
         .replace("__TRACE_DATA__", JSON.stringify(data))
-        .replace("<script>", `<script>(${installClock})();<\/script><script>`);
+        .replace(
+          "<script>",
+          `<script>window.frameElement.watchErrors(window);(${installClock})();<\/script><script>`,
+        );
       document.body.append(iframe);
       await ready;
       const doc = iframe.contentDocument;
@@ -588,18 +615,17 @@
       ],
     ];
 
-    let failures = 0;
     results.textContent = "";
     for (const [name, run] of tests) {
       try {
         await run();
         results.textContent += `PASS ${name}\n`;
       } catch (error) {
-        failures++;
-        results.textContent += `FAIL ${name}: ${error.message}\n`;
+        fail(`${name}: ${error.message}`);
       }
     }
-    results.textContent += `${tests.length - failures}/${tests.length} passed`;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    results.textContent += `${tests.length} tests completed, ${failures} failures`;
     document.title = failures ? "FAIL: Rail playback" : "PASS: Rail playback";
   </script>
 </html>
