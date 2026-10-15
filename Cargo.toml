@@ -12,3 +12,6 @@ categories = ["science", "simulation", "artificial-intelligence"]
 [lib]
 name = "urbanflow"
 path = "src/lib.rs"
+
+[dev-dependencies]
+rstest = { version = "0.27.0", default-features = false }
