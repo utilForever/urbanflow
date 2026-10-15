@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "kind": "rail",
+  "nodes": ["18446744073709551615", "0"],
+  "edges": [
+    {
+      "from": "18446744073709551615",
+      "to": "0",
+      "kind": "Rail"
+    },
+    {
+      "from": "0",
+      "to": "18446744073709551615",
+      "kind": "Rail"
+    }
+  ],
+  "demands": [
+    {
+      "origin": "18446744073709551615",
+      "destination": "0",
+      "amount": 4294967295
+    },
+    {
+      "origin": "18446744073709551615",
+      "destination": "0",
+      "amount": 4294967295
+    },
+    {
+      "origin": "0",
+      "destination": "0",
+      "amount": 0
+    }
+  ],
+  "route": ["0", "1", "0"],
+  "vehicle": {
+    "capacity": 4294967295,
+    "travel_ticks_per_edge": "18446744073709551615",
+    "dwell_ticks_per_stop": "18446744073709551615"
+  },
+  "max_ticks": "0"
+}
