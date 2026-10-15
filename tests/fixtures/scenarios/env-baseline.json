@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "kind": "env",
+  "nodes": ["0", "1"],
+  "edges": [],
+  "demands": [
+    {
+      "origin": "0",
+      "destination": "1",
+      "amount": 15
+    }
+  ],
+  "budget": 2,
+  "max_steps": "1"
+}
