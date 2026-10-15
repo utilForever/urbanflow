@@ -1,27 +1,16 @@
+mod support;
+
 use rstest::rstest;
+use support::vehicle;
 use urbanflow::demand::Demand;
 use urbanflow::rail::{
-    RailPassengerError, RailPassengers, RailPosition, RailRoute, RailStepError, RailVehicle,
-    RailVehicleState,
+    RailPassengerError, RailPassengers, RailPosition, RailStepError, RailVehicle, RailVehicleState,
 };
 use urbanflow::time::SimulationClock;
-use urbanflow::world::{EdgeId, EdgeKind, Network, NodeId};
+use urbanflow::world::{EdgeId, NodeId};
 
 fn service() -> (RailVehicle, SimulationClock, RailPassengers) {
-    let mut network = Network::new();
-    let first = network
-        .add_edge(NodeId(8), NodeId(3), EdgeKind::Rail)
-        .unwrap();
-    let second = network
-        .add_edge(NodeId(3), NodeId(8), EdgeKind::Rail)
-        .unwrap();
-    let vehicle = RailVehicle::new(
-        RailRoute::new(&network, vec![first, second]).unwrap(),
-        2,
-        2,
-        1,
-    )
-    .unwrap();
+    let vehicle = vehicle(&[8, 3, 8], 2, 2, 1);
     let passengers = RailPassengers::new(&[
         Demand::new(NodeId(8), NodeId(3), 3),
         Demand::new(NodeId(3), NodeId(8), 1),

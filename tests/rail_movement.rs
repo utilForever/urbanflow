@@ -1,30 +1,11 @@
+mod support;
+
 use rstest::rstest;
+use support::vehicle;
 use urbanflow::demand::Demand;
-use urbanflow::rail::{
-    RailPassengerError, RailPassengers, RailRoute, RailStepError, RailVehicle, RailVehicleState,
-};
+use urbanflow::rail::{RailPassengerError, RailPassengers, RailStepError, RailVehicleState};
 use urbanflow::time::SimulationClock;
-use urbanflow::world::{EdgeKind, Network, NodeId};
-
-fn vehicle(stops: &[usize], capacity: u32, travel: u64, dwell: u64) -> RailVehicle {
-    let mut network = Network::new();
-    let edges = stops
-        .windows(2)
-        .map(|pair| {
-            network
-                .add_edge(NodeId(pair[0]), NodeId(pair[1]), EdgeKind::Rail)
-                .unwrap()
-        })
-        .collect();
-
-    RailVehicle::new(
-        RailRoute::new(&network, edges).unwrap(),
-        capacity,
-        travel,
-        dwell,
-    )
-    .unwrap()
-}
+use urbanflow::world::NodeId;
 
 #[test]
 fn ticks_repeat_exact_dwell_travel_and_passenger_transitions() {

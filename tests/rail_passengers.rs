@@ -1,6 +1,9 @@
+mod support;
+
+use support::vehicle;
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengerError, RailPassengers, RailRoute, RailVehicle};
-use urbanflow::world::{EdgeKind, Network, NodeId};
+use urbanflow::rail::{RailPassengerError, RailPassengers};
+use urbanflow::world::NodeId;
 
 #[test]
 fn passenger_records_preserve_every_demand_in_stored_order() {
@@ -157,23 +160,9 @@ fn service_completion_marks_every_unfinished_passenger_unserved() {
     assert!(empty.records().is_empty());
 }
 
-fn vehicle(stops: &[usize], capacity: u32) -> RailVehicle {
-    let mut network = Network::new();
-    let edges = stops
-        .windows(2)
-        .map(|pair| {
-            network
-                .add_edge(NodeId(pair[0]), NodeId(pair[1]), EdgeKind::Rail)
-                .unwrap()
-        })
-        .collect();
-
-    RailVehicle::new(RailRoute::new(&network, edges).unwrap(), capacity, 1, 1).unwrap()
-}
-
 #[test]
 fn stops_alight_before_boarding_in_stored_demand_order() {
-    let vehicle = vehicle(&[0, 1, 2], 6);
+    let vehicle = vehicle(&[0, 1, 2], 6, 1, 1);
     let before = vehicle.clone();
     let initial = RailPassengers::new(&[
         Demand::new(NodeId(1), NodeId(2), 2),
@@ -237,7 +226,7 @@ fn stops_alight_before_boarding_in_stored_demand_order() {
 
 #[test]
 fn stops_only_board_current_origins_with_later_destinations() {
-    let vehicle = vehicle(&[8, 3, 9], 10);
+    let vehicle = vehicle(&[8, 3, 9], 10, 1, 1);
     let mut passengers = RailPassengers::new(&[
         Demand::new(NodeId(3), NodeId(8), 1),
         Demand::new(NodeId(3), NodeId(3), 1),
@@ -270,7 +259,7 @@ fn stops_only_board_current_origins_with_later_destinations() {
 
 #[test]
 fn repeated_route_nodes_use_the_remaining_stop_sequence() {
-    let vehicle = vehicle(&[0, 1, 0, 2], 3);
+    let vehicle = vehicle(&[0, 1, 0, 2], 3, 1, 1);
     let mut passengers = RailPassengers::new(&[
         Demand::new(NodeId(0), NodeId(0), 1),
         Demand::new(NodeId(1), NodeId(0), 2),
@@ -289,7 +278,7 @@ fn repeated_route_nodes_use_the_remaining_stop_sequence() {
 
 #[test]
 fn invalid_stops_and_excess_occupancy_leave_all_records_unchanged() {
-    let vehicle = vehicle(&[0, 1, 2], 3);
+    let vehicle = vehicle(&[0, 1, 2], 3, 1, 1);
 
     let mut passengers = RailPassengers::new(&[
         Demand::new(NodeId(0), NodeId(1), 4),
@@ -316,7 +305,7 @@ fn invalid_stops_and_excess_occupancy_leave_all_records_unchanged() {
 
 #[test]
 fn stop_processing_checks_aggregate_occupancy_overflow() {
-    let vehicle = vehicle(&[0, 1, 2], u32::MAX);
+    let vehicle = vehicle(&[0, 1, 2], u32::MAX, 1, 1);
 
     let mut passengers = RailPassengers::new(&[
         Demand::new(NodeId(0), NodeId(1), u32::MAX),
@@ -336,7 +325,7 @@ fn stop_processing_checks_aggregate_occupancy_overflow() {
 
 #[test]
 fn stops_handle_maximum_capacity_and_empty_demand() {
-    let vehicle = vehicle(&[0, 1, 2], u32::MAX);
+    let vehicle = vehicle(&[0, 1, 2], u32::MAX, 1, 1);
     let mut passengers = RailPassengers::new(&[
         Demand::new(NodeId(0), NodeId(1), u32::MAX),
         Demand::new(NodeId(1), NodeId(2), u32::MAX),
