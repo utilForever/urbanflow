@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "kind": "rail",
+  "nodes": ["0", "1"],
+  "edges": [
+    {
+      "from": "0",
+      "to": "1",
+      "kind": "Rail"
+    }
+  ],
+  "demands": [],
+  "route": ["0"],
+  "vehicle": {
+    "capacity": 1,
+    "travel_ticks_per_edge": "1",
+    "dwell_ticks_per_stop": "1"
+  },
+  "max_ticks": "18446744073709551616"
+}
