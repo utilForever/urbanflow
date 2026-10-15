@@ -1,127 +1,86 @@
 # Architecture
 
-`urbanflow` is a Rust library with two independent simulation paths: `Env` evaluates network-building actions through aggregate demand allocation, while `rail` models one vehicle's timed service. Rail movement does not advance with `Env::step` or feed its metrics.
+`urbanflow` has two independent simulation paths: `Env` evaluates network-building actions through aggregate demand allocation; `rail` models one vehicle's timed service. `Env::step` neither advances Rail movement nor uses its results.
 
-See [README](README.md) for usage and [AGENTS](AGENTS.md) for contributor rules and validation commands. Detailed API contracts live beside the source linked below.
+See [README](README.md) for usage, [AGENTS](AGENTS.md) for contributor rules, and each module's rustdoc for API and error contracts.
 
 ## Overview
 
 ```mermaid
 flowchart LR
     subgraph Environment["Environment: network design"]
-        Action --> Env
-        World["World + demands"] --> Env
+        Inputs["World + demands + action"] --> Env
         Env --> Allocation["simulation::tick"]
         Allocation --> Metrics
         Metrics --> Env
         Env --> Result["StepResult + Observation"]
     end
     subgraph Rail["Rail: fixed-route service"]
-        State["Vehicle + passengers + clock"] --> Advance["advance: movement + stops"]
+        State["Vehicle + passengers + clock"] --> Advance["advance"]
         Advance --> State
-        State --> Snapshot["snapshot: owned frame"]
-        State --> Record["record_trace: bounded advance + snapshot"]
+        State --> Record["snapshot / record_trace"]
         Record --> Trace["RailTrace"]
     end
-    subgraph Analysis["Analysis: completed Rail service"]
-        Trace --> Analyze["analysis::analyze: validate + summarize"]
-        Analyze --> Summaries["OperationalAnalysis"]
-    end
-    subgraph Presentation["Example: recorded playback"]
-        Trace --> HTML["world + trace + optional analysis → offline HTML"]
-        Summaries --> HTML
-        HTML --> Viewer["browser: SVG + playback controls + summary tables"]
-    end
+    Trace --> Analyze["analysis::analyze"]
+    Analyze --> Summaries["OperationalAnalysis"]
+    Trace --> Viewer["Example: offline HTML viewer"]
+    Summaries --> Viewer
 ```
 
-The library owns simulation rules. Owned observations, snapshots, and traces let consumers retain results and replay movement without borrowing live state or reimplementing those rules. Rail produces the trace, `analysis` reads a completed trace into owned summaries, and the browser consumer serializes and displays those results. Analysis never advances service state; presentation never calculates operational metrics or changes recorded results. Partial recordings remain viewable without analysis.
+Core outputs own their data. Consumers can retain observations and replay traces without borrowing live state or making simulation decisions.
 
 ## Module Map
 
-| Modules                                                                                               | Visibility    | Responsibility                                                                  |
-| ----------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------- |
-| [`world`](src/world.rs), [`demand`](src/demand.rs)                                                    | Public        | Nodes, directed edges, mode capacities and costs, and passenger demand          |
-| [`network`](src/network.rs)                                                                           | Public        | Derived adjacency index and directed shortest-path queries                      |
-| [`simulation`](src/simulation.rs)                                                                     | Crate-private | Capacity allocation and aggregate metrics, invoked through `Env`                |
-| [`env`](src/env.rs), [`action`](src/action.rs)                                                        | Public        | Scenario lifecycle, action validation, episode state, and rewards               |
-| [`time`](src/time.rs)                                                                                 | Public        | Checked integer simulation clock                                                |
-| [`rail`](src/rail.rs)                                                                                 | Public        | Validated routes, vehicle ticks, passenger lifecycle, snapshots, and traces     |
-| [`analysis`](src/analysis.rs)                                                                         | Public        | Checked passenger, vehicle occupancy, stop activity, and route timing summaries |
-| [`metrics`](src/metrics.rs), [`observation`](src/observation.rs), [`step_result`](src/step_result.rs) | Public        | Owned outputs for callers                                                       |
+All modules are public except `simulation`.
+
+| Modules                                                                                               | Responsibility                                                   |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| [`world`](src/world.rs), [`demand`](src/demand.rs)                                                    | Topology, mode capacities and costs, passenger demand            |
+| [`network`](src/network.rs)                                                                           | Derived adjacency and directed shortest paths                    |
+| [`simulation`](src/simulation.rs)                                                                     | Aggregate capacity allocation and metrics                        |
+| [`env`](src/env.rs), [`action`](src/action.rs)                                                        | Scenario lifecycle, actions, episodes, rewards                   |
+| [`time`](src/time.rs)                                                                                 | Checked integer simulation clock                                 |
+| [`rail`](src/rail.rs)                                                                                 | Routes, vehicle movement, passenger lifecycle, snapshots, traces |
+| [`analysis`](src/analysis.rs)                                                                         | Validation and operational summaries of completed Rail traces    |
+| [`metrics`](src/metrics.rs), [`observation`](src/observation.rs), [`step_result`](src/step_result.rs) | Owned environment outputs                                        |
 
 ## Execution Flows
 
 ### Environment
 
-`Env::new` validates topology (duplicate node IDs, then initial-edge endpoints), demand endpoints in stored order, and finally a finite nonnegative budget, returning the first `InitError`. It preserves supplied node, edge, and demand order. `Env::toy_city` supplies a built-in scenario through this same constructor.
-
-`Env::step` checks episode completion, node endpoints, edge validity, affordability, and arithmetic overflow before mutating anything. It then adds the edge, deducts its cost, increments the step count, allocates demand, and returns metrics, reward, an owned observation, and completion status. Rejected steps leave all environment state unchanged.
-
-`reset()` restores the initial world, demands, and budget, clears metrics and the step count, and returns an observation. It keeps the current `max_steps`, allowing the same actions to reproduce an episode.
+`Env::new` validates and retains the initial scenario. Each `step` validates an action before adding an edge, deducting its cost, allocating demand, and returning metrics, reward, and an observation. `reset` restores the scenario for repeatable episodes. Input order, error precedence, and reset semantics are specified in the [Env API](src/env.rs).
 
 ### Rail Service
 
-`time::SimulationClock` owns checked integer ticks starting at zero; it has no wall-clock unit, pacing, or scheduling policy. `rail::RailVehicle::advance` coordinates this clock with vehicle and passenger state. Browser playback time belongs to the consumer and never advances this clock.
+The caller keeps a vehicle, clock, and passenger set together. `advance` coordinates one atomic tick of movement and stop processing; `snapshot` copies the state, and `record_trace` records bounded advances. A partial trace retains its last state without forcing unfinished journeys to complete.
 
-A `RailRoute` validates a nonempty, ordered sequence of connected Rail edges and owns their IDs and stop nodes captured from the network. A `RailVehicle` owns that route and positive capacity, travel, and dwell durations. Route indices can differ from network IDs: stop zero is the first origin, stop `i > 0` is edge `i - 1`'s destination, and the final stop index is the edge count.
-
-The caller keeps one vehicle, clock, and passenger set together. `advance` coordinates one checked tick, movement, and stop processing atomically. The first tick processes the initial stop before consuming dwell time; later stops are processed on arrival. Every edge uses the same configured travel duration, and each departure follows the configured dwell duration. Final arrival completes service without a final dwell; further advances are no-ops.
-
-`RailPassengers` owns aggregate lifecycle counts per demand, rather than individual passenger agents. All passengers begin waiting. Stops alight destination passengers before boarding demand that originates at the current stop and has a destination later in the route, in stored demand order within vehicle capacity. Repeated nodes use the remaining stop sequence. Passengers who have not boarded remain waiting, including demand outside the route or left behind by a full vehicle; any still outstanding at final arrival become unserved. Vehicle capacity is separate from the edge capacities used by aggregate `simulation` allocation; Rail service does not use shortest-path routing or congestion to decide movement.
-
-`snapshot` reads an owned frame without processing stops or advancing time. `record_trace` reuses `advance` and `snapshot` to record the initial state and each tick until completion or a required tick limit, reporting incomplete runs through `completed`. Reaching the limit leaves the service and passenger counts at the last recorded tick, without completing unfinished journeys. A trace error returns no trace but retains earlier successful ticks. Each frame owns a copy of the passenger records, so callers must choose a limit suitable for an in-memory trace. Tick sequencing, count validation, and snapshot/trace edge cases are specified in the [Rail API](src/rail.rs).
+Rail uses fixed travel/dwell durations and aggregate passenger counts. Vehicle capacity is independent of network edge capacity; movement uses neither shortest-path routing nor congestion. Simulation ticks have no wall-clock unit or pacing policy. See the [Rail API](src/rail.rs) for timing and passenger contracts.
 
 ### Operational Result Contracts
 
-`analysis::OperationalAnalysis` groups concrete passenger outcome, passenger time, vehicle occupancy, stop activity, and route timing structs. It owns its per-stop collection in route-visit order, preserving repeated nodes through stop indices. Integer totals remain separate from optional floating-point means and ratios; passenger time includes both overall totals and the arrived-passenger totals used for completed-journey means. The [README example and metric definitions](README.md#operational-analysis) show the public workflow; [rustdoc](src/analysis.rs) specifies units, empty denominators, and the snapshot-interval convention. All time uses simulation ticks, independent of browser playback time.
-
-`analysis::analyze(&RailTrace)` is the combined public entry point. It runs the shared preflight once, then reuses the individual summaries' private calculation functions in field order: passenger outcomes, passenger times, vehicle occupancy, stop activity, and route timing. Passenger times reuse the already computed outcome total. It returns an owned `OperationalAnalysis` or the first `AnalysisError`, without modifying the trace or returning partial results. Including stop activity requires a full recording from stop zero with all passengers waiting through completion; a recording starting during service or containing only completion is rejected even if individual summaries support it.
-
-Every `from_trace` operation runs the same private preflight in `analysis` before calculating a result. It requires a nonempty completed recording and valid terminal passenger records, then checks every snapshot for strictly increasing contiguous ticks, positive constant capacity, stable ordered demands, and per-demand passenger conservation. Forward lifecycle checks prevent waiting from increasing, arrived or unserved from decreasing, arrivals exceeding previously onboard passengers, and new unserved counts before the final snapshot. Occupancy must equal the checked `u64` sum of onboard counts and stay within capacity; completed positions cannot retain waiting or onboard passengers. Errors identify the offending demand or snapshot through `AnalysisError`, without modifying input or returning partial results. Any initial tick is allowed, including contiguous recordings ending at `u64::MAX`.
-
-`PassengerOutcomes::from_trace` accumulates checked `u64` totals from the validated final snapshot without merging duplicate demands and returns a served share only for nonzero requested demand. A completion-only recording is accepted.
-
-`PassengerTimes::from_trace` obtains validated final outcomes and accumulates checked `u64` passenger-ticks using each interval's starting counts and tick delta. For each demand, final arrivals minus current arrivals identify passengers still to arrive; these are attributed to onboard passengers first, with the remainder waiting. This gives earlier boardings priority, handles separate batches and repeated stops without per-passenger timelines, and excludes unserved passengers' time from arrived-passenger means. Onboard time includes dwell. Means divide by final arrivals, or are `None` for zero arrivals; recordings that begin during or after service contribute only their recorded intervals. Products and totals remain checked for passenger-time overflow.
-
-`VehicleOccupancy::from_trace` uses validated occupancy and capacity. Intervals starting at `AtStop` or `Traveling` contribute starting occupancy times duration to checked `u64` passenger-ticks; intervals starting at `Complete` contribute no active time or maximum occupancy. Mean occupancy divides by summed active duration, and load factors divide by the configured capacity. No active intervals yields zero integer measurements and `None` derived values; an active empty service yields `Some(0.0)` derived values. It uses only recorded intervals, including onboard dwell.
-
-`StopActivity::from_trace` additionally requires the initial stop with all passengers waiting and every visit through completion. It returns one entry per visit in route order, retaining empty visits and repeated nodes. The first advance processes stop zero even if the resulting snapshot is already traveling; later arrivals process their destination stop. Waiting decreases count boarding, and arrived increases count alighting, preserving simultaneous activity. Remaining waiting sums demands originating at that visit's node after boarding; the final visit uses waiting before completion converts outstanding passengers to unserved. It checks stop/edge identifiers, passenger changes at stop processing, and checked `u64` totals. Missing initial history and inconsistent visits return typed errors.
-
-`RouteTiming::from_trace` sums validated tick deltas by each interval's starting position: `AtStop` contributes dwell and `Traveling` contributes travel. Checked `u64` totals satisfy `elapsed_ticks == traveling_ticks + dwelling_ticks`; initial dwell is included, while intervals starting at `Complete` add no time. The completion tick is the final snapshot's absolute tick. Core-produced recordings end at completion, so elapsed time also equals the final tick minus the first; a completion-only recording has zero durations. Recordings starting during service use only recorded intervals without reconstructing movement.
-
-Public fields do not validate caller-created results. Detailed movement timing, boarding eligibility, and agreement with an external route or network remain outside the shared preflight. Calculation and trace validation belong in `analysis`; movement remains in `rail`, aggregate allocation and rewards retain their existing `Metrics`, and display remains a consumer responsibility.
+`analysis::analyze` validates once and combines the same calculations used by individual `from_trace` summaries. It returns owned results without advancing service or reconstructing missing history. Units, history requirements, undefined denominators, and errors belong in [analysis rustdoc](src/analysis.rs); the [executable example](examples/operational_analysis.rs) demonstrates the workflow.
 
 ## Simulation Contracts
 
-- Edges are directed; a return connection requires another edge and its construction cost. Self-connections and same-mode duplicates are rejected, while Road and Rail may share an ordered node pair.
-- Each demand follows the first shortest path by hop count, breaking ties by edge insertion order. Demands consume shared capacity in stored order, limited by the smallest remaining capacity on their path; unreachable and excess demand is unserved.
-- Congestion is the maximum edge load divided by capacity, or zero without edges. Cost sums all edge construction costs. Reward is `served demand - unserved demand - congestion - cost`.
-- Available actions follow stored `from` node order, `to` node order, then `EdgeKind::ALL`, omitting invalid or unaffordable edges. The list is empty at the step limit; an episode is done whenever no actions remain.
-- Simulation time starts at zero and uses checked integer ticks. Time and passenger processing errors preserve the failed Rail tick's vehicle, clock, and passengers together.
-- Rail passenger counts preserve each original demand, including duplicates and zero amounts: waiting, onboard, arrived, and unserved always sum to its amount. Owned outputs retain their data across later state changes.
+- Edges are directed. Return connections have their own construction cost; self-connections and same-mode duplicates are rejected. Road and Rail may share an ordered node pair.
+- Demands consume capacity in stored order along the first shortest path by hop count, with ties resolved by edge insertion order. The path's smallest remaining capacity limits service; excess and unreachable demand are unserved.
+- Congestion is the maximum edge load/capacity ratio, or zero without edges. Cost sums construction costs. Reward is `served demand - unserved demand - congestion - cost`.
+- Invalid actions and overflow are detected before mutation. A failed Rail tick preserves vehicle, clock, and passengers together. Rail lifecycle counts always conserve each original demand, including duplicates and zero amounts.
 
 ## Training Consumers
 
-The [`random_policy`](examples/random_policy.rs) and [`tabular_q_learning`](examples/tabular_q_learning.rs) examples use `reset`, `available_actions`, and `step` through the public API. Policy state stays outside the core. These are fixed-seed baselines with one decision and one step per episode; the learner keeps one value per action, without a general state table or multi-step training loop.
+[`random_policy`](examples/random_policy.rs) and [`tabular_q_learning`](examples/tabular_q_learning.rs) use the public Env API with fixed seeds and one step per episode. Policy state stays outside the core; the learner stores one value per action, with no general state table or multi-step training loop.
 
 ## Browser Consumer
 
-The [README walkthrough](README.md#browser-viewer) is the supported local generation and playback workflow. Rust finishes recording before the browser opens; playback reads those fixed snapshots. Identical scenario inputs and ordering produce identical traces and HTML, regardless of browser playback speed or seeking.
+The [`rail_viewer` example](examples/rail_viewer.rs) records service before generating one offline HTML file. Its [Rust module](examples/rail_viewer/mod.rs) serializes the world, trace, and optional core-produced analysis; its [template](examples/rail_viewer/viewer.html) owns layout, playback, and formatting. Identical inputs produce identical traces and HTML.
 
-The [`rail_viewer`](examples/rail_viewer.rs) example records a small service through `RailVehicle::record_trace` and writes one offline HTML file. Its [consumer module](examples/rail_viewer/mod.rs) serializes the world, trace, and core-produced `OperationalAnalysis` into a fixed JSON schema. `render` calls `analysis::analyze` once for completed traces. `MissingInitialState` omits analysis while retaining the recorded snapshots; other errors propagate before file writing. Both partial traces and completed traces without initial history embed `analysis: null`. IDs and all `u64` totals and tick values use strings to preserve JavaScript precision; optional means and ratios use JSON numbers or `null`. No serialization dependency or public core API is added.
-
-The [embedded template](examples/rail_viewer/viewer.html) owns SVG layout, edge styling, snapshot selection, and playback controls. Nodes follow stored order, parallel and reverse edges are separated, and the marker uses the snapshot's node or resolved edge ID and travel progress.
-
-Playback uses `requestAnimationFrame` with elapsed browser time and a fractional snapshot cursor; core traces have one frame per tick. Both animation callbacks and control events read `performance.now()` so an older frame timestamp cannot rewind playback. At 1×, each tick takes one second of viewing time. The marker interpolates travel progress along the existing SVG edge, including arrival, and stays at its node during dwell. Tick labels preserve their exact recorded strings and, with the slider, identify the latest reached snapshot. Pause and speed changes account for elapsed time before changing playback state. Seeking and resetting pause playback; both complete and partial traces stop at their final frame. Empty and single-frame traces cannot play. These controls never advance simulation or mutate trace data.
-
-The status panel reads the same selected snapshot as the tick label. It displays the recorded vehicle state, stop index and node or directed edge, occupancy, and capacity, and sums each passenger lifecycle count across all demand records, including duplicates. Totals use JavaScript `BigInt` to preserve integer precision across records. The panel updates only when the selected snapshot changes, so marker interpolation never produces fractional passenger counts or premature arrivals. Empty traces display unavailable values; single-frame and partial traces retain their recorded state without inferring service completion. Rendering and aggregation remain in the example template.
-
-The completed-run summary displays all five embedded analysis groups as native HTML tables on load, independently of snapshot selection. JavaScript formats means and percentages and preserves exact integer strings; it does not derive operational metrics. Undefined values display `N/A`, and stop rows retain route visit order, including repeated nodes. When analysis is absent, the completion flag distinguishes missing initial history from a partial or empty recording for the explanatory message. Snapshot inspection and playback remain available under their existing rules. The summary uses the existing offline document with no additional requests or frontend dependencies.
+Playback reads fixed snapshots and never advances simulation. Only the vehicle marker is interpolated; status follows recorded ticks, and analysis stays fixed. IDs and `u64` values remain exact through string serialization and `BigInt` passenger totals. Partial traces and completed traces missing initial history remain viewable without analysis; other analysis errors prevent file writing. See [README](README.md#browser-viewer) for execution and the consumer's rustdoc for display contracts.
 
 ## Planned Direction
 
-Trams, DRT, broader macro- and micro-level analysis, application interfaces, and large-scale low-latency simulation remain planned. The Rail service currently has one fixed-route vehicle; multiple vehicles, automatic reverse service, timetables, headways, and passenger transfers are separate work. Road traffic, signals, lanes, and congestion-driven movement are not implemented in Rail service. GIS maps, a web server, WebAssembly, and frontend frameworks are also deferred; the current viewer uses a schematic layout and offline HTML.
+Current Rail service has one fixed-route vehicle. Multiple vehicles/routes, automatic reverse service, timetables, headways, transfers, Tram/DRT service, road traffic (signals, lanes, congestion-driven movement), and GIS maps remain deferred.
 
-Operational analysis currently summarizes one recorded service. Multiple-route and multiple-vehicle comparisons, statistical experiments, confidence intervals, and optimization remain deferred. Dataframes, databases, query engines, charting dependencies, hosted dashboards, and GIS analysis are outside this workflow.
+Broader analysis, statistical experiments, confidence intervals, optimization, large-scale low-latency simulation, and application integrations are also planned. Dataframes, databases, query engines, charting dependencies, hosted dashboards, web servers, WebAssembly, and frontend frameworks are outside the current workflow.
 
-Future interfaces should use the public crate API and keep rendering, coordinates, serialization, storage, and transport in consumer layers. Add new modules only when a concrete requirement establishes their responsibility.
+Future interfaces should use the public API and keep rendering, coordinates, serialization, storage, and transport in consumer layers. Add modules only for concrete requirements.

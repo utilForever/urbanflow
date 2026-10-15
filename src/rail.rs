@@ -22,6 +22,11 @@ pub struct RailRoute {
 }
 
 impl RailRoute {
+    /// Validates a nonempty sequence of connected Rail edges in supplied order.
+    ///
+    /// Owns the edge IDs and stop nodes captured from the network. Stop zero is
+    /// the first origin; stop `i > 0` is edge `i - 1`'s destination, and the final
+    /// stop index is the edge count. Repeated nodes retain separate visits.
     pub fn new(network: &Network, edges: Vec<EdgeId>) -> Result<Self, RailInitError> {
         if edges.is_empty() {
             return Err(RailInitError::EmptyRoute);
@@ -121,6 +126,8 @@ pub struct RailTrace {
     /// Initial state followed by one snapshot per successful tick.
     pub snapshots: Vec<RailSnapshot>,
     /// False when the tick limit stopped recording before service completion.
+    /// Completion means the vehicle finished its route, not that all passengers
+    /// arrived; a partial trace retains its last recorded lifecycle counts.
     pub completed: bool,
 }
 
@@ -142,6 +149,10 @@ pub struct RailVehicle {
 }
 
 impl RailVehicle {
+    /// Creates a vehicle with positive capacity, travel ticks, and dwell ticks.
+    ///
+    /// Every edge uses the same travel duration, and each departure follows the
+    /// same dwell duration. Vehicle capacity is separate from edge capacity.
     pub fn new(
         route: RailRoute,
         capacity: u32,
@@ -378,9 +389,13 @@ impl RailVehicle {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PassengerState {
     pub demand: Demand,
+    /// Has not boarded, including demand the route cannot carry.
     pub waiting: u32,
+    /// Is riding the vehicle and counts toward its capacity.
     pub onboard: u32,
+    /// Has alighted at the demand's destination.
     pub arrived: u32,
+    /// Was still waiting or onboard when service ended.
     pub unserved: u32,
 }
 
