@@ -58,6 +58,8 @@ Rail uses fixed travel/dwell durations and aggregate passenger counts. Vehicle c
 
 ### Operational Result Contracts
 
+Every analysis requires a completed trace; `analyze` and `StopActivity::from_trace` additionally require every tick from stop zero with all passengers initially waiting, while other summaries accept partial history.
+
 `analysis::analyze` validates once and combines the same calculations used by individual `from_trace` summaries. It returns owned results without advancing service or reconstructing missing history. Units, history requirements, undefined denominators, and errors belong in [analysis rustdoc](src/analysis.rs); the [executable example](examples/operational_analysis.rs) demonstrates the workflow.
 
 ## Simulation Contracts
