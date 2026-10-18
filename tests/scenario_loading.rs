@@ -16,6 +16,7 @@ use urbanflow::rail::RailVehicleState;
 use urbanflow::world::{EdgeId, EdgeKind, NodeId};
 
 const ENV: &str = include_str!("fixtures/scenarios/env-baseline.json");
+const RAIL: &str = include_str!("fixtures/scenarios/rail-demo.json");
 
 fn fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -123,6 +124,40 @@ fn rail_file_matches_demo_trace_analysis_and_viewer_on_repeated_runs() {
     }
 }
 
+#[rstest]
+#[case::zero(0, false)]
+#[case::partial(17, false)]
+#[case::exact_completion(18, true)]
+fn loaded_recording_preserves_limits(#[case] limit: u64, #[case] completed: bool) {
+    let json = RAIL.replace(
+        r#""max_ticks": "32""#,
+        &format!(r#""max_ticks": "{limit}""#),
+    );
+    let Scenario::Rail(mut loaded) = parse("limit.json", &json).unwrap() else {
+        panic!("expected Rail");
+    };
+    let trace = loaded
+        .vehicle
+        .record_trace(&mut loaded.clock, &mut loaded.passengers, loaded.max_ticks)
+        .unwrap();
+
+    assert_eq!(trace.completed, completed);
+    assert_eq!(trace.snapshots.len() as u64, limit + 1);
+    assert_eq!(loaded.clock.tick(), limit);
+
+    if !completed {
+        assert!(
+            trace
+                .snapshots
+                .last()
+                .unwrap()
+                .passengers
+                .iter()
+                .all(|p| p.unserved == 0)
+        );
+    }
+}
+
 #[test]
 fn empty_env_is_valid_and_loading_does_not_spend_initial_edge_costs() {
     let Scenario::Env(empty) = load(fixture("env-empty.json")).unwrap() else {
@@ -143,6 +178,213 @@ fn empty_env_is_valid_and_loading_does_not_spend_initial_edge_costs() {
     assert_eq!(env.budget, 2.0);
     assert_eq!(env.world.network.edges()[0].id, EdgeId(0));
     assert_eq!(env.reset().budget, 2.0);
+}
+
+#[test]
+fn input_order_controls_actions_path_ties_and_demand_allocation() {
+    let json = r#"{
+        "version":1,"kind":"env","nodes":["8","3","21","5"],
+        "edges":[
+            {"from":"8","to":"21","kind":"Road"},
+            {"from":"8","to":"3","kind":"Rail"},
+            {"from":"21","to":"5","kind":"Road"},
+            {"from":"3","to":"5","kind":"Rail"}
+        ],
+        "demands":[
+            {"origin":"8","destination":"5","amount":8},
+            {"origin":"8","destination":"21","amount":5},
+            {"origin":"8","destination":"5","amount":8},
+            {"origin":"3","destination":"3","amount":0}
+        ],"budget":2,"max_steps":"1"
+    }"#;
+    let Scenario::Env(mut env) = parse("ordered.json", json).unwrap() else {
+        panic!("expected Env");
+    };
+
+    assert_eq!(
+        env.world.nodes.iter().map(|n| n.id.0).collect::<Vec<_>>(),
+        [8, 3, 21, 5]
+    );
+    assert_eq!(
+        env.demands.iter().map(|d| d.amount).collect::<Vec<_>>(),
+        [8, 5, 8, 0]
+    );
+    assert_eq!(
+        env.available_actions()[0],
+        Action::AddEdge {
+            from: NodeId(8),
+            to: NodeId(3),
+            kind: EdgeKind::Road
+        }
+    );
+
+    let result = env
+        .step(Action::AddEdge {
+            from: NodeId(5),
+            to: NodeId(8),
+            kind: EdgeKind::Road,
+        })
+        .unwrap();
+
+    assert_eq!(result.metrics.served_demand, 10);
+    assert_eq!(result.metrics.unserved_demand, 11);
+}
+
+#[test]
+fn boundary_fixture_is_target_checked_and_keeps_full_width_values() {
+    let result = load(fixture("rail-boundaries.json"));
+
+    if usize::BITS < 64 {
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("nodes[0]"));
+        assert!(error.contains("32-bit usize"));
+        return;
+    }
+
+    let Scenario::Rail(mut loaded) = result.unwrap() else {
+        panic!("expected Rail");
+    };
+
+    assert_eq!(loaded.world.nodes[0].id.0, usize::MAX);
+    assert_eq!(loaded.vehicle.capacity(), u32::MAX);
+    assert_eq!(loaded.vehicle.travel_ticks_per_edge(), u64::MAX);
+    assert_eq!(loaded.vehicle.dwell_ticks_per_stop(), u64::MAX);
+    assert_eq!(
+        loaded.vehicle.route().edges(),
+        [EdgeId(0), EdgeId(1), EdgeId(0)]
+    );
+
+    let trace = loaded
+        .vehicle
+        .record_trace(&mut loaded.clock, &mut loaded.passengers, loaded.max_ticks)
+        .unwrap();
+
+    assert!(!trace.completed);
+    assert_eq!(trace.snapshots.len(), 1);
+
+    let records = &trace.snapshots[0].passengers;
+
+    assert_eq!(records.len(), 3);
+    assert_eq!(records[0], records[1]);
+    assert_eq!(records[0].waiting, u32::MAX);
+    assert_eq!(records[2].demand.amount, 0);
+}
+
+#[test]
+fn full_width_ticks_work_on_every_target_without_precomputing_route_duration() {
+    let json = RAIL
+        .replace(
+            r#""travel_ticks_per_edge": "4""#,
+            r#""travel_ticks_per_edge": "18446744073709551615""#,
+        )
+        .replace(
+            r#""dwell_ticks_per_stop": "2""#,
+            r#""dwell_ticks_per_stop": "18446744073709551615""#,
+        )
+        .replace(r#""max_ticks": "32""#, r#""max_ticks": "1""#);
+    let Scenario::Rail(mut loaded) = parse("long-route.json", &json).unwrap() else {
+        panic!("expected Rail");
+    };
+
+    assert_eq!(loaded.vehicle.travel_ticks_per_edge(), u64::MAX);
+
+    let trace = loaded
+        .vehicle
+        .record_trace(&mut loaded.clock, &mut loaded.passengers, loaded.max_ticks)
+        .unwrap();
+
+    assert!(!trace.completed);
+    assert_eq!(
+        loaded.vehicle.state(),
+        RailVehicleState::AtStop {
+            stop_index: 0,
+            dwell_ticks_remaining: u64::MAX - 1
+        }
+    );
+
+    let json = RAIL.replace(
+        r#""max_ticks": "32""#,
+        r#""max_ticks": "18446744073709551615""#,
+    );
+    let Scenario::Rail(mut loaded) = parse("large-limit.json", &json).unwrap() else {
+        panic!("expected Rail");
+    };
+
+    assert_eq!(loaded.max_ticks, u64::MAX);
+
+    let trace = loaded
+        .vehicle
+        .record_trace(&mut loaded.clock, &mut loaded.passengers, loaded.max_ticks)
+        .unwrap();
+
+    assert!(trace.completed);
+    assert_eq!(trace.snapshots.len(), 19);
+}
+
+#[test]
+fn rail_demands_need_known_endpoints_even_when_zero_but_need_not_be_on_route() {
+    let mut document: serde_json::Value = serde_json::from_str(RAIL).unwrap();
+    document["demands"][0]["amount"] = 0.into();
+    document["demands"][0]["destination"] = "99".into();
+
+    rejection(
+        &document.to_string(),
+        "demands[0].destination",
+        "unknown node ID",
+    );
+
+    document["nodes"].as_array_mut().unwrap().push("99".into());
+    document["demands"][1]["destination"] = "3".into();
+
+    let Scenario::Rail(loaded) = parse("off-route.json", &document.to_string()).unwrap() else {
+        panic!("expected Rail");
+    };
+
+    assert_eq!(loaded.passengers.records().len(), 2);
+    assert_eq!(
+        loaded.passengers.records()[0].demand.destination,
+        NodeId(99)
+    );
+    assert_eq!(loaded.passengers.records()[1].waiting, 3);
+}
+
+#[rstest]
+#[case::largest_32_bit("4294967295")]
+#[case::first_64_bit("4294967296")]
+#[case::beyond_float_precision("9007199254740993")]
+#[case::largest_64_bit("18446744073709551615")]
+fn node_ids_and_step_limits_use_target_usize(#[case] value: &str) {
+    let json = format!(
+        r#"{{"version":1,"kind":"env","nodes":["{value}"],"edges":[],"demands":[],"budget":0,"max_steps":"{value}"}}"#
+    );
+    let result = parse("target.json", &json);
+    let number: u64 = value.parse().unwrap();
+
+    if let Ok(expected) = usize::try_from(number) {
+        let Scenario::Env(env) = result.unwrap() else {
+            panic!("expected Env");
+        };
+
+        assert_eq!(env.world.nodes[0].id.0, expected);
+        assert_eq!(env.max_steps, expected);
+    } else {
+        assert!(result.unwrap_err().detail.contains("32-bit usize"));
+    }
+
+    let json = RAIL.replace(
+        r#""route": ["4", "5", "6"]"#,
+        &format!(r#""route": ["{value}"]"#),
+    );
+
+    rejection(
+        &json,
+        "route[0]",
+        if usize::try_from(number).is_ok() {
+            "unknown edge ID"
+        } else {
+            "32-bit usize"
+        },
+    );
 }
 
 #[rstest]

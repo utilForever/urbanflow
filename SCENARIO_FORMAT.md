@@ -85,7 +85,7 @@ A rejection must identify the file and offending field or array index and explai
 
 ## Fixtures and Expected Results
 
-Fixtures live in [`tests/fixtures/scenarios`](tests/fixtures/scenarios). They are complete documents, with no include/override mechanism. The invalid files are intentionally syntactically valid JSON; each demonstrates one contract violation. [Loader tests](tests/scenario_loading.rs) enforce these outcomes and compare loaded scenarios against their Rust-built equivalents. Result round trips belong to the separate result adapter.
+Fixtures live in [`tests/fixtures/scenarios`](tests/fixtures/scenarios). They are complete documents, with no include/override mechanism. The invalid files are intentionally syntactically valid JSON; each demonstrates one contract violation. [Loader tests](tests/scenario_loading.rs) enforce these outcomes and compare loaded scenarios against their Rust-built equivalents. They also cover target-dependent boundaries, input ordering, deterministic outputs, and partial recordings. Result round trips belong to the separate result adapter.
 
 | Valid fixture                                                         | Expected interpretation                                                                                                                                                                                                                                               |
 | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
