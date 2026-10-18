@@ -29,7 +29,9 @@ flowchart LR
 
 Core outputs own their data. Consumers can retain observations and replay traces without borrowing live state or making simulation decisions.
 
-The [scenario file contract](SCENARIO_FORMAT.md) defines versioned consumer inputs for either Env or Rail. It preserves input order and uses decimal strings for IDs and wide integers. Edge IDs remain insertion indices; no core configuration hierarchy or serialization dependency is introduced. Loading and checked conversion through existing constructors are follow-up work in [#205](https://github.com/utilForever/urbanflow/issues/205).
+The [scenario file contract](SCENARIO_FORMAT.md) defines versioned consumer inputs for either Env or Rail. The [`scenario` consumer adapter](examples/scenario/mod.rs) reads UTF-8 JSON, checks the version before interpreting its fields, preserves array order, and converts decimal strings through checked `u64`/`usize` conversions. Edge IDs remain insertion indices. Serde, serde_json, and serde_path_to_error are development dependencies used only at this boundary; the core has no configuration hierarchy or serialization dependency.
+
+Loading returns a validated `Env` or a `RailScenario` containing the world, vehicle, passengers, tick-zero clock, and recording limit. `Network::add_edge`, `Env::validate_inputs` (including `World::validate_topology` and demand endpoints for both kinds), `Env::new`, `RailRoute::new`, and `RailVehicle::new` own simulation validation. The adapter adds strict file-shape/numeric checks and file/field diagnostics. It exposes no partial state on failure and performs no actions, ticks, analysis, or output writes. CLI execution and result persistence remain separate consumer work.
 
 ## Module Map
 
