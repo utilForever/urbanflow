@@ -433,6 +433,175 @@ fn rejects_invalid_documents(#[case] json: &str, #[case] field: &str, #[case] re
     rejection(json, field, reason);
 }
 
+#[rstest]
+#[case::negative("-1")]
+#[case::negative_zero("-0")]
+#[case::fraction("1.0")]
+#[case::exponent("1e0")]
+#[case::quoted("\"1\"")]
+#[case::boolean("true")]
+#[case::null("null")]
+fn unsigned_numeric_tokens_reject_coercion(#[case] token: &str) {
+    rejection(
+        &ENV.replace("\"version\": 1", &format!("\"version\": {token}")),
+        "version",
+        "integer",
+    );
+    rejection(
+        &ENV.replace("\"amount\": 15", &format!("\"amount\": {token}")),
+        "demands[0].amount",
+        "u32",
+    );
+    rejection(
+        &RAIL.replace("\"capacity\": 6", &format!("\"capacity\": {token}")),
+        "vehicle.capacity",
+        "u32",
+    );
+}
+
+#[rstest]
+#[case::empty("")]
+#[case::sign("+1")]
+#[case::negative("-1")]
+#[case::leading_zero("01")]
+#[case::space(" 1")]
+#[case::fraction("1.0")]
+#[case::exponent("1e0")]
+#[case::unicode("١")]
+#[case::overflow("18446744073709551616")]
+fn decimal_strings_reject_noncanonical_or_out_of_range_values(#[case] value: &str) {
+    rejection(
+        &ENV.replace(
+            "\"max_steps\": \"1\"",
+            &format!("\"max_steps\": \"{value}\""),
+        ),
+        "max_steps",
+        "",
+    );
+    rejection(
+        &RAIL.replace(
+            "\"max_ticks\": \"32\"",
+            &format!("\"max_ticks\": \"{value}\""),
+        ),
+        "max_ticks",
+        "",
+    );
+}
+
+#[rstest]
+#[case::null_nodes("env", "/nodes", "null", "nodes")]
+#[case::duplicate_node("env", "/nodes", r#"["0","0"]"#, "nodes[1]")]
+#[case::edge_array("rail", "/edges/0", r#"["8","3","Road"]"#, "edges[0]")]
+#[case::demand_array("env", "/demands/0", r#"["0","1",15]"#, "demands[0]")]
+#[case::vehicle_array("rail", "/vehicle", r#"[6,"4","2"]"#, "vehicle")]
+#[case::self_edge("rail", "/edges/0/to", r#""8""#, "edges[0]")]
+#[case::duplicate_edge(
+    "rail",
+    "/edges/1",
+    r#"{"from":"8","to":"3","kind":"Road"}"#,
+    "edges[1]"
+)]
+#[case::unknown_edge_node("rail", "/edges/0/from", r#""99""#, "edges[0].from")]
+#[case::unknown_rail_demand("rail", "/demands/0/destination", r#""99""#, "demands[0].destination")]
+#[case::road_route("rail", "/route", r#"["0"]"#, "route[0]")]
+#[case::disconnected("rail", "/route", r#"["4","6"]"#, "route[1]")]
+#[case::empty_route("rail", "/route", "[]", "route")]
+#[case::zero_capacity("rail", "/vehicle/capacity", "0", "vehicle.capacity")]
+#[case::capacity_overflow("rail", "/vehicle/capacity", "4294967296", "vehicle.capacity")]
+#[case::zero_dwell(
+    "rail",
+    "/vehicle/dwell_ticks_per_stop",
+    r#""0""#,
+    "vehicle.dwell_ticks_per_stop"
+)]
+#[case::negative_budget("env", "/budget", "-1", "budget")]
+#[case::numeric_steps("env", "/max_steps", "1", "max_steps")]
+#[case::numeric_ticks("rail", "/max_ticks", "32", "max_ticks")]
+fn rejects_invalid_shapes_and_core_settings(
+    #[case] kind: &str,
+    #[case] pointer: &str,
+    #[case] replacement: &str,
+    #[case] field: &str,
+) {
+    let mut document: serde_json::Value =
+        serde_json::from_str(if kind == "env" { ENV } else { RAIL }).unwrap();
+    *document.pointer_mut(pointer).unwrap() = serde_json::from_str(replacement).unwrap();
+
+    rejection(&document.to_string(), field, "");
+}
+
+#[rstest]
+#[case::duplicate_root(
+    "env",
+    "\"budget\": 2",
+    "\"budget\": 2, \"budget\": 2",
+    "budget",
+    "duplicate field"
+)]
+#[case::duplicate_edge(
+    "rail",
+    "\"from\": \"8\"",
+    "\"from\": \"8\", \"from\": \"8\"",
+    "edges[0]",
+    "duplicate field"
+)]
+#[case::duplicate_demand(
+    "env",
+    "\"amount\": 15",
+    "\"amount\": 15, \"amount\": 15",
+    "demands[0]",
+    "duplicate field"
+)]
+#[case::duplicate_vehicle(
+    "rail",
+    "\"capacity\": 6",
+    "\"capacity\": 6, \"capacity\": 6",
+    "vehicle",
+    "duplicate field"
+)]
+#[case::unknown_edge_field(
+    "rail",
+    "\"from\": \"8\"",
+    "\"id\": \"0\", \"from\": \"8\"",
+    "edges[0]",
+    "unknown field"
+)]
+#[case::unknown_demand_field(
+    "env",
+    "\"amount\": 15",
+    "\"extra\": null, \"amount\": 15",
+    "demands[0]",
+    "unknown field"
+)]
+#[case::unknown_vehicle_field(
+    "rail",
+    "\"capacity\": 6",
+    "\"extra\": null, \"capacity\": 6",
+    "vehicle",
+    "unknown field"
+)]
+#[case::cross_kind_field(
+    "rail",
+    "\"version\": 1",
+    "\"version\": 1, \"budget\": null",
+    "budget",
+    "unknown field"
+)]
+#[case::budget_overflow("env", "\"budget\": 2", "\"budget\": 1e400", "budget", "out of range")]
+fn rejects_duplicate_unknown_and_unrepresentable_fields(
+    #[case] kind: &str,
+    #[case] from: &str,
+    #[case] to: &str,
+    #[case] field: &str,
+    #[case] reason: &str,
+) {
+    let original = if kind == "env" { ENV } else { RAIL };
+
+    assert!(original.contains(from));
+
+    rejection(&original.replacen(from, to, 1), field, reason);
+}
+
 #[test]
 fn file_io_errors_identify_the_file() {
     let path = fixture("does-not-exist.json");
