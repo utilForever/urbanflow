@@ -75,6 +75,10 @@ assert_eq!(env.step(action).unwrap(), first);
 
 Metrics report served and unserved demand, congestion, and construction cost. See [simulation contracts](ARCHITECTURE.md#simulation-contracts) for allocation and reward rules.
 
+### Scenario File Contract
+
+The [version 1 scenario format](SCENARIO_FORMAT.md) specifies JSON inputs for independent Env and Rail runs, with ordered topology and demand, exact integer IDs and ticks, and representative valid/invalid fixtures. It represents both the baseline Env example and the Rail viewer demo. This is a format contract; file loading is tracked in [#205](https://github.com/utilForever/urbanflow/issues/205), and examples still construct scenarios in Rust.
+
 ### Rail Trace
 
 Keep one vehicle, clock, and passenger set together. [`RailVehicle::record_trace`](src/rail.rs) records the initial state and each tick up to a supplied limit; `completed` means the vehicle finished its route, not that every passenger arrived. Use `advance()` and `snapshot()` for individual ticks.

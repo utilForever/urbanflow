@@ -29,6 +29,8 @@ flowchart LR
 
 Core outputs own their data. Consumers can retain observations and replay traces without borrowing live state or making simulation decisions.
 
+The [scenario file contract](SCENARIO_FORMAT.md) defines versioned consumer inputs for either Env or Rail. It preserves input order and uses decimal strings for IDs and wide integers. Edge IDs remain insertion indices; no core configuration hierarchy or serialization dependency is introduced. Loading and checked conversion through existing constructors are follow-up work in [#205](https://github.com/utilForever/urbanflow/issues/205).
+
 ## Module Map
 
 All modules are public except `simulation`.
