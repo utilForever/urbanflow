@@ -48,6 +48,9 @@ fn reward(metrics: Metrics) -> f64 {
 
 impl Env {
     /// Constructs a validated caller-defined environment.
+    ///
+    /// Preserves node, edge, and demand order. Uses [`Self::validate_inputs`]
+    /// and retains the initial world, demands, and budget for [`Self::reset`].
     pub fn new(
         world: World,
         demands: Vec<Demand>,
@@ -83,6 +86,10 @@ impl Env {
     }
 
     /// Validates caller-defined inputs before environment construction.
+    ///
+    /// Returns the first error: duplicate node IDs, initial-edge endpoints,
+    /// demand endpoints in stored order (origin before destination), then a
+    /// non-finite or negative budget. Inputs are not modified.
     pub fn validate_inputs(
         world: &World,
         demands: &[Demand],
@@ -106,6 +113,10 @@ impl Env {
     }
 
     /// Returns the valid affordable actions in deterministic order.
+    ///
+    /// Follows stored `from` node order, `to` node order, then [`EdgeKind::ALL`].
+    /// At the step limit the list is empty; no available actions means the
+    /// episode is done.
     pub fn available_actions(&self) -> Vec<Action> {
         if self.step_count >= self.max_steps {
             return Vec::new();
@@ -149,6 +160,9 @@ impl Env {
     }
 
     /// Restores the caller-defined initial state and returns its observation.
+    ///
+    /// Restores the initial world, demands, and budget, clears metrics and the
+    /// step count, and keeps the current `max_steps`.
     pub fn reset(&mut self) -> Observation {
         self.world = self.initial_state.world.clone();
         self.demands.clone_from(&self.initial_state.demands);
@@ -159,6 +173,16 @@ impl Env {
         self.observation()
     }
 
+    /// Adds an edge, allocates demand, and returns owned episode results.
+    ///
+    /// Checks episode completion, node endpoints, edge validity, affordability,
+    /// and arithmetic overflow in that order before mutating any state.
+    /// Rejected steps leave the environment unchanged.
+    ///
+    /// # Panics
+    ///
+    /// Panics before mutation if total demand exceeds `u64::MAX` or the next
+    /// step count exceeds `usize::MAX`.
     pub fn step(&mut self, action: Action) -> Result<StepResult, StepError> {
         if self.is_done() {
             return Err(StepError::EpisodeComplete);

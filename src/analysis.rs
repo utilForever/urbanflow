@@ -12,6 +12,11 @@
 //! Unlike [`crate::metrics::Metrics`], these summaries describe a recorded
 //! service, not aggregate network allocation, construction cost, or reward.
 //!
+//! Run `cargo run --example operational_analysis` from the repository for a
+//! complete recording and assertions covering all five summaries.
+//!
+//! # Units and intervals
+//!
 //! Counts and tick totals are exact integers; producers must use checked
 //! arithmetic when accumulating them. Means and ratios are derived `f64` values
 //! and may round large integers. An undefined value is `None`, never NaN or
@@ -30,7 +35,8 @@
 //! no waiting or onboard passengers and conserve each demand's amount.
 //! Snapshots are then checked in recorded order for:
 //!
-//! - Strictly increasing ticks exactly one apart, with any initial tick.
+//! - Strictly increasing ticks exactly one apart, with any initial tick,
+//!   including contiguous recordings ending at `u64::MAX`.
 //! - Positive capacity, constant throughout the recording.
 //! - Identical ordered demands compared with the final snapshot, and conserved
 //!   waiting + onboard + arrived + unserved counts for every record, including
@@ -43,12 +49,25 @@
 //!
 //! Failures return [`AnalysisError`] without mutating the trace or returning
 //! partial results. Indices are zero-based; interval errors identify the later
-//! snapshot. Recordings starting during service or containing only completion
-//! remain valid, except that [`analyze`] and [`StopActivity::from_trace`] require
-//! full history.
+//! snapshot.
 //! Detailed movement timing, boarding eligibility, and agreement with an external
 //! route or network are outside the shared preflight; stop-sequence checks remain
 //! part of stop activity calculation, including in [`analyze`].
+//!
+//! # Recording history
+//!
+//! All operations require a completed recording. A trace stopped before service
+//! completion is rejected, even though it can still be displayed by a consumer.
+//! [`analyze`] and [`StopActivity::from_trace`] additionally require stop zero
+//! with all passengers waiting and every tick through completion; missing initial
+//! history returns [`AnalysisError::MissingInitialState`].
+//!
+//! The other `from_trace` summaries accept recordings starting during service or
+//! containing only completion. They measure only recorded intervals and never
+//! reconstruct missing history. Passenger-time means still divide by final
+//! arrivals, including arrivals before recording. A completion-only recording
+//! has zero time totals and durations, `Some(0.0)` passenger-time means if anyone
+//! arrived (otherwise `None`), and undefined occupancy means and load factors.
 
 use crate::rail::{RailPosition, RailSnapshot, RailTrace};
 use crate::world::NodeId;
@@ -321,7 +340,8 @@ impl PassengerOutcomes {
     ///
     /// Counts every demand record separately, including duplicates and zero
     /// amounts, using checked `u64` totals. A completion-only recording is valid.
-    /// `served_share` is `None` for zero requested passengers.
+    /// `served_share` is `None` for zero requested passengers, or `Some(0.0)`
+    /// for positive demand with no arrivals.
     ///
     /// # Errors
     ///
@@ -365,6 +385,11 @@ impl PassengerOutcomes {
 /// The `arrived_*` totals retain only the time attributable to passengers who
 /// reached their destinations, so their means do not include unserved waiting.
 /// All three means are `None` when [`PassengerOutcomes::arrived`] is zero.
+///
+/// For the `operational_analysis` example, all 10 passengers wait during `[0, 1)`,
+/// then 6 ride and 4 wait during `[1, 2)`. This gives 14 waiting passenger-ticks,
+/// but only 6 belong to passengers who arrive. Their mean waiting time is
+/// therefore `6 / 6 = 1` tick, not `14 / 6`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PassengerTimes {
     /// Waiting passenger-ticks across all passengers, including the unserved.
