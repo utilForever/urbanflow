@@ -1,6 +1,6 @@
 # Scenario File Format, Version 1
 
-This is the consumer-side input contract for [#204](https://github.com/utilForever/urbanflow/issues/204). It describes currently implemented simulation inputs; a loader is follow-up work in [#205](https://github.com/utilForever/urbanflow/issues/205). The existing examples still construct inputs in Rust. The normative fixtures below are inputs for that future loader, not files accepted by today's viewer CLI.
+This is the consumer-side input contract for [#204](https://github.com/utilForever/urbanflow/issues/204), implemented by the [scenario loader](examples/scenario/mod.rs) for [#205](https://github.com/utilForever/urbanflow/issues/205). The existing example commands still construct inputs in Rust; CLI integration is tracked in [#207](https://github.com/utilForever/urbanflow/issues/207). The normative fixtures below are accepted or rejected by the loader, not by today's viewer CLI.
 
 One UTF-8 JSON file contains one object describing a fresh `env` or `rail` scenario. These kinds run independently: Env actions do not move a Rail vehicle, and Rail movement does not evaluate Env rewards. The file is not a saved episode, trace, analysis result, or viewer payload.
 
@@ -49,7 +49,7 @@ Every ID, `max_steps`, and tick value is a JSON string of ASCII decimal digits m
 
 Node IDs, edge references, and `max_steps` also must fit `usize` on the execution target. Use checked conversion, never truncation, wrapping, clamping, or renumbering. On a 32-bit target their maximum is `4294967295`; on a 64-bit target it is `18446744073709551615`. Files using larger IDs are not portable to smaller targets. Edge references must additionally identify an existing array entry. Durations and `max_ticks` remain `u64` on either target.
 
-`version`, `amount`, and `capacity` use unsigned JSON integer tokens (digits only, no minus sign, fraction, or exponent). `amount` is in `0..=4294967295`; `capacity` is in `1..=4294967295`. Booleans and quoted numbers are not substitutes. These values fit exactly in browser numbers. Budget alone uses binary64 floating-point semantics, matching `Env`; reject values that convert to a negative or non-finite `f64`. Decimal budget values may round to the nearest representable `f64`.
+`version`, `amount`, and `capacity` use unsigned JSON integer tokens (digits only, no minus sign, fraction, or exponent). `amount` is in `0..=4294967295`; `capacity` is in `1..=4294967295`. Booleans and quoted numbers are not substitutes. These values fit exactly in browser numbers. Budget alone uses binary64 floating-point semantics, matching `Env`; reject values that convert to a negative or non-finite `f64`. Decimal budget values round to the nearest representable `f64`, matching Rust's `str::parse::<f64>` so file loading preserves action affordability at construction-cost boundaries.
 
 Passenger amounts and capacities count people. Ticks are dimensionless simulation ticks, not seconds; playback speed does not change them. `max_steps` counts Env decisions, not Rail ticks. Network capacities and construction costs come from `EdgeKind` and are not configurable in this format.
 
@@ -85,7 +85,7 @@ A rejection must identify the file and offending field or array index and explai
 
 ## Fixtures and Expected Results
 
-Fixtures live in [`tests/fixtures/scenarios`](tests/fixtures/scenarios). They are complete documents, with no include/override mechanism. The invalid files are intentionally syntactically valid JSON; each demonstrates one contract violation. Automated loader acceptance/rejection and round-trip tests belong to #205 and later consumers; the tables provide their expected outcomes.
+Fixtures live in [`tests/fixtures/scenarios`](tests/fixtures/scenarios). They are complete documents, with no include/override mechanism. The invalid files are intentionally syntactically valid JSON; each demonstrates one contract violation. [Loader tests](tests/scenario_loading.rs) enforce these outcomes and compare loaded scenarios against their Rust-built equivalents. They also cover malformed JSON, strict field shapes, duplicate members, numeric tokens, target-dependent boundaries, deterministic outputs, and partial recordings. Result round trips belong to the separate result adapter.
 
 | Valid fixture                                                         | Expected interpretation                                                                                                                                                                                                                                               |
 | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -77,7 +77,9 @@ Metrics report served and unserved demand, congestion, and construction cost. Se
 
 ### Scenario File Contract
 
-The [version 1 scenario format](SCENARIO_FORMAT.md) specifies JSON inputs for independent Env and Rail runs, with ordered topology and demand, exact integer IDs and ticks, and representative valid/invalid fixtures. It represents both the baseline Env example and the Rail viewer demo. This is a format contract; file loading is tracked in [#205](https://github.com/utilForever/urbanflow/issues/205), and examples still construct scenarios in Rust.
+The [version 1 scenario format](SCENARIO_FORMAT.md) specifies JSON inputs for independent Env and Rail runs, with ordered topology and demand, exact integer IDs and ticks, and representative valid/invalid fixtures. The consumer adapter in [`examples/scenario/mod.rs`](examples/scenario/mod.rs) provides `load(path)` and `parse(file, json)`, returning either a validated `Env` or fresh Rail inputs without running any actions or ticks. Errors identify the file and offending field or array index. IDs and step limits must fit the target's `usize`; tick values retain their full `u64` range.
+
+The loader's [integration tests](tests/scenario_loading.rs) compare file inputs with the Rust-built baseline and Rail demo, including traces, analysis, ordering, and partial recordings. Run them with `cargo test --test scenario_loading`. Parsing dependencies are development-only; the core library has no serialization dependency. Existing example commands still use their built-in scenarios; file execution and output generation are tracked in [#207](https://github.com/utilForever/urbanflow/issues/207).
 
 ### Rail Trace
 
