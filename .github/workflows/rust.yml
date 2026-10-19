@@ -55,6 +55,18 @@ jobs:
       - name: Run cargo test
         run: cargo test --all
 
+  browser_playback:
+    name: 🌐 Browser Playback
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+      - name: Run browser playback assertions
+        run: python3 tests/run_rail_viewer_playback.py
+      - name: Verify browser runner failure handling
+        run: python3 tests/test_rail_viewer_playback_runner.py
+
   unused_dependencies:
     name: 📦 Unused Crates
     runs-on: ubuntu-latest
