@@ -9,7 +9,7 @@ pub(super) fn payload(
     trace: &RailTrace,
     analysis: Option<&OperationalAnalysis>,
 ) -> String {
-    let mut data = String::from("{\"nodes\":[");
+    let mut data = String::from("{\"version\":1,\"nodes\":[");
 
     for (index, node) in world.nodes.iter().enumerate() {
         if index > 0 {

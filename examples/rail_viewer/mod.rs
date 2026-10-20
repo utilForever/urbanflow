@@ -1,7 +1,6 @@
-#[path = "../results/encode.rs"]
-mod result_payload;
+#[path = "../results/mod.rs"]
+pub mod results;
 
-use urbanflow::analysis::{self, AnalysisError};
 use urbanflow::demand::Demand;
 use urbanflow::rail::{RailPassengers, RailRoute, RailTrace, RailVehicle};
 use urbanflow::time::SimulationClock;
@@ -50,13 +49,13 @@ pub fn scenario() -> (World, RailTrace) {
 
 /// Embeds a world, its recorded trace, and completed-run analysis in offline HTML.
 ///
-/// Inputs come from the same valid scenario. Serialization lives in the shared
-/// consumer payload module; JSON is escaped for an HTML script element.
+/// Uses the versioned result adapter and escapes JSON for an HTML script element.
+/// Invalid topology, snapshots, or complete-trace analysis fail before rendering.
 /// IDs and u64 values are strings to preserve precision in JavaScript; per-demand
 /// counts fit exactly in JavaScript numbers. Undefined analysis values use null.
 /// Partial traces and completed traces missing their initial service state have
 /// no analysis, but retain their snapshots for playback and inspection. Other
-/// `analysis::analyze` errors are returned before producing HTML.
+/// analysis errors are returned before producing HTML.
 /// All metrics come from the core.
 ///
 /// The template lays out nodes clockwise in stored order and separates parallel
@@ -71,18 +70,8 @@ pub fn scenario() -> (World, RailTrace) {
 /// Analysis tables render once in route-visit order, retaining repeated nodes.
 /// Means use two decimal places, shares/load factors use percentages, undefined
 /// values use `N/A`, and integers keep their full precision.
-pub fn render(world: &World, trace: &RailTrace) -> Result<String, AnalysisError> {
-    let analysis = match trace
-        .completed
-        .then(|| analysis::analyze(trace))
-        .transpose()
-    {
-        Ok(analysis) => analysis,
-        Err(AnalysisError::MissingInitialState) => None,
-        Err(error) => return Err(error),
-    };
-    let data = result_payload::payload(world, trace, analysis.as_ref());
-
+pub fn render(world: &World, trace: &RailTrace) -> Result<String, results::ResultError> {
+    let data = results::encode(world, trace)?;
     Ok(include_str!("viewer.html").replace("__TRACE_DATA__", &escape_json(&data)))
 }
 

@@ -103,6 +103,12 @@ Arrived: 6, unserved: 4, elapsed ticks: 2
 
 The [analysis rustdoc](src/analysis.rs) defines units, interval accounting, undefined values, partial-history support for individual summaries, and errors.
 
+### Saved Rail Results
+
+The [result adapter](examples/results/mod.rs) provides `save(path, &world, &trace)` and `load(path)`, plus in-memory `encode` and `parse`. Its [version 1 JSON format](RESULT_FORMAT.md) preserves exact IDs, ticks, counts, ordering, and completion state within a 16 MiB file limit. Loaded results contain the world, trace, and recomputed optional analysis; imported analysis is never trusted. Partial and completion-only recordings remain viewable without full analysis.
+
+The viewer uses the same encoder. Loading checks both input size and the encoded size with recomputed analysis, so an unchanged loaded result fits the output limit. Invalid state or analysis is rejected before replacing an output file. Run `cargo test --test result_loading` for round-trip and malformed-input coverage. CLI integration remains tracked in [#207](https://github.com/utilForever/urbanflow/issues/207).
+
 ### Browser Viewer
 
 ```bash
@@ -115,7 +121,7 @@ Use Play/Pause, Speed, Reset, and the Snapshot slider to inspect the recording. 
 
 The status panel follows the selected snapshot; the operational summary stays fixed. Partial recordings and completed recordings missing initial history remain viewable without analysis. Undefined summary values display `N/A`.
 
-To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod.rs). Rendering and serialization stay in the example.
+To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod.rs). Rendering and result serialization stay in consumer modules.
 
 ## Baseline RL examples
 

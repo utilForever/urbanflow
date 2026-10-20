@@ -1,7 +1,7 @@
 #[path = "../examples/baseline/mod.rs"]
 mod baseline;
 #[path = "../examples/rail_viewer/mod.rs"]
-mod rail_viewer;
+pub mod rail_viewer;
 #[path = "../examples/scenario/mod.rs"]
 mod scenario;
 
