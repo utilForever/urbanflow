@@ -3,7 +3,7 @@ pub mod rail_viewer;
 
 use std::path::PathBuf;
 
-use rail_viewer::results::{RailResult, encode, load, parse, save};
+use rail_viewer::results::{MAX_BYTES, RailResult, encode, load, parse, save};
 use rstest::rstest;
 use serde_json::{Value, json};
 use urbanflow::analysis::analyze;
@@ -195,6 +195,81 @@ fn imported_analysis_is_always_recomputed(#[case] cache: Option<Value>) {
     );
 }
 
+#[rstest]
+#[case::version("/version", json!(2), "version")]
+#[case::numeric_id("/nodes/0", json!(8), "nodes")]
+#[case::leading_zero("/nodes/0", json!("08"), "decimal string")]
+#[case::signed_id("/nodes/0", json!("+8"), "decimal string")]
+#[case::id_overflow("/nodes/0", json!("18446744073709551616"), "number too large")]
+#[case::duplicate_node("/nodes/1", json!("8"), "DuplicateNode")]
+#[case::edge_id("/edges/1/id", json!("0"), "insertion index")]
+#[case::edge_kind("/edges/0/kind", json!("Tram"), "expected Road or Rail")]
+#[case::kind_object("/edges/0/kind", json!({"Road":null}), "string")]
+#[case::unknown_endpoint("/edges/0/from", json!("999"), "UnknownEdgeEndpoint")]
+#[case::self_connection("/edges/0/to", json!("8"), "SelfConnection")]
+#[case::completion("/trace/completed", json!(false), "Complete must be")]
+#[case::empty_complete("/trace/snapshots", json!([]), "empty")]
+#[case::position("/trace/snapshots/0/position/kind", json!("Flying"), "unknown variant")]
+#[case::node("/trace/snapshots/0/position/node", json!("999"), "unknown node")]
+#[case::dwell("/trace/snapshots/0/position/dwell_ticks_remaining", json!("0"), "must be positive")]
+#[case::road_position("/trace/snapshots/1/position/edge", json!("0"), "Rail edge")]
+#[case::unknown_edge("/trace/snapshots/1/position/edge", json!("999"), "Rail edge")]
+#[case::wrong_endpoint("/trace/snapshots/1/position/to", json!("8"), "Rail edge")]
+#[case::travel_progress("/trace/snapshots/1/position/travel_ticks_elapsed", json!("2"), "less than")]
+#[case::capacity("/trace/snapshots/1/capacity", json!(0), "capacity")]
+#[case::occupancy("/trace/snapshots/1/occupancy", json!(0), "occupancy")]
+#[case::tick_overflow("/trace/snapshots/0/tick", json!("18446744073709551616"), "number too large")]
+#[case::fraction("/trace/snapshots/0/capacity", json!(2.5), "u32")]
+#[case::count_overflow("/trace/snapshots/0/passengers/0/amount", json!(4294967296u64), "u32")]
+#[case::bad_analysis("/analysis", json!([]), "analysis")]
+#[case::edge_array("/edges/0", json!(["0", "8", "21", "Road"]), "expected object")]
+#[case::trace_array("/trace", json!([false, []]), "expected object")]
+#[case::snapshot_array("/trace/snapshots/0", json!([]), "expected object")]
+#[case::passenger_array("/trace/snapshots/0/passengers/0", json!(["3", "21", 2, 2, 0, 0, 0]), "expected object")]
+#[case::at_stop_position_array("/trace/snapshots/0/position", json!(["AtStop", "0", "8", "1"]), "expected object")]
+#[case::traveling_position_array("/trace/snapshots/1/position", json!(["Traveling", "0", "1", "8", "3", "0", "2"]), "expected object")]
+#[case::complete_position_array("/trace/snapshots/6/position", json!(["Complete", "2", "21"]), "expected object")]
+fn malformed_fields_are_rejected(
+    #[case] pointer: &str,
+    #[case] replacement: Value,
+    #[case] expected: &str,
+) {
+    let mut value: Value = serde_json::from_str(COMPLETE).unwrap();
+    *value.pointer_mut(pointer).unwrap() = replacement;
+
+    rejection(&value.to_string(), expected);
+}
+
+#[rstest]
+#[case::root("")]
+#[case::edge("/edges/0")]
+#[case::trace("/trace")]
+#[case::snapshot("/trace/snapshots/0")]
+#[case::position("/trace/snapshots/0/position")]
+#[case::passenger("/trace/snapshots/0/passengers/0")]
+fn unknown_fields_are_rejected(#[case] pointer: &str) {
+    let mut value: Value = serde_json::from_str(COMPLETE).unwrap();
+    value
+        .pointer_mut(pointer)
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert("unexpected".into(), json!(1));
+
+    rejection(&value.to_string(), "unknown field");
+}
+
+#[rstest]
+#[case::version("\"version\": 1", "\"version\": 1, \"version\": 1")]
+#[case::node("\"node\": \"8\"", "\"node\": \"8\", \"node\": \"8\"")]
+#[case::count("\"amount\": 2", "\"amount\": 2, \"amount\": 2")]
+fn duplicate_fields_are_rejected(#[case] original: &str, #[case] duplicate: &str) {
+    let input = COMPLETE.replacen(original, duplicate, 1);
+
+    assert_ne!(input, COMPLETE);
+    rejection(&input, "duplicate field");
+}
+
 #[test]
 fn malformed_documents_and_missing_fields_are_rejected() {
     for input in ["", "[]", "null", "{", &format!("{COMPLETE} trailing")] {
@@ -212,6 +287,124 @@ fn malformed_documents_and_missing_fields_are_rejected() {
         r#"{"version":999,"trace":"future shape"}"#,
         "unsupported version 999",
     );
+}
+
+#[rstest]
+#[case::ticks("/trace/snapshots/1/tick", json!("1"), "ticks")]
+#[case::capacity("/trace/snapshots/1/capacity", json!(3), "capacity")]
+#[case::counts("/trace/snapshots/0/passengers/0/waiting", json!(1), "counts")]
+#[case::occupancy("/trace/snapshots/0/occupancy", json!(0), "occupancy")]
+#[case::missing_demands("/trace/snapshots/1/passengers", json!([]), "demand")]
+#[case::changed_demand("/trace/snapshots/1/passengers/0/to", json!("8"), "demand")]
+#[case::unknown_demand("/trace/snapshots/0/passengers/0/to", json!("999"), "unknown node")]
+fn partial_recordings_are_checked(
+    #[case] pointer: &str,
+    #[case] replacement: Value,
+    #[case] expected: &str,
+) {
+    let mut value: Value =
+        serde_json::from_str(include_str!("fixtures/results/partial.json")).unwrap();
+    *value.pointer_mut(pointer).unwrap() = replacement;
+
+    rejection(&value.to_string(), expected);
+}
+
+#[rstest]
+#[case::arrival_without_boarding(json!({"waiting": 1, "arrived": 1}))]
+#[case::unserved_before_completion(json!({"waiting": 1, "unserved": 1}))]
+fn partial_lifecycle_transitions_are_checked(#[case] changes: Value) {
+    let mut value: Value =
+        serde_json::from_str(include_str!("fixtures/results/partial.json")).unwrap();
+    value["trace"]["snapshots"][1]["passengers"][0]
+        .as_object_mut()
+        .unwrap()
+        .extend(changes.as_object().unwrap().clone());
+
+    rejection(&value.to_string(), "invalid lifecycle transition");
+}
+
+#[test]
+fn byte_limit_applies_before_parsing_and_file_reads_are_bounded() {
+    let mut input = EMPTY.to_owned();
+    input.extend(std::iter::repeat_n(' ', MAX_BYTES - input.len()));
+
+    parse("at-limit.json", &input).unwrap();
+    input.push(' ');
+
+    rejection(&input, "exceeds");
+
+    let path = temporary_file("oversize");
+
+    std::fs::write(&path, input).unwrap();
+    assert!(load(&path).unwrap_err().detail.contains("exceeds"));
+
+    std::fs::write(&path, [0xff, 0xfe]).unwrap();
+    assert!(load(&path).unwrap_err().detail.contains("utf-8"));
+
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(load(&path).unwrap_err().file, path);
+
+    let (world, trace) = rail_viewer::scenario();
+    let missing_parent = path.join("result.json");
+
+    assert_eq!(
+        save(&missing_parent, &world, &trace).unwrap_err().file,
+        missing_parent
+    );
+}
+
+#[test]
+fn loading_checks_the_canonical_output_limit() {
+    let header = r#"{"version":1,"nodes":["0","1"],"edges":[],"trace":{"completed":false,"snapshots":[{"tick":"10000000000000000000","position":{"kind":"AtStop","stop_index":"0","node":"0","dwell_ticks_remaining":"1"},"occupancy":0,"capacity":1000,"passengers":["#;
+    let record =
+        r#"{"from":"0","to":"1","amount":0,"waiting":0,"onboard":0,"arrived":0,"unserved":0}"#;
+    let tail = "]}]}}";
+    let count = (MAX_BYTES - header.len() - tail.len() + 1) / (record.len() + 1);
+    let mut input = header.to_owned();
+
+    for index in 0..count {
+        if index > 0 {
+            input.push(',');
+        }
+
+        input.push_str(record);
+    }
+
+    input.push_str(tail);
+
+    // Adding the omitted analysis:null field uses the remaining 16 bytes.
+    assert_eq!(input.len(), MAX_BYTES - 16);
+
+    let loaded = parse("at-limit.json", &input).unwrap();
+    let encoded = encode(&loaded.world, &loaded.trace).unwrap();
+
+    assert_eq!(encoded.len(), MAX_BYTES);
+    assert!(rail_viewer::render(&loaded.world, &loaded.trace).is_ok());
+
+    let input = input.replacen("\"capacity\":1000", "\"capacity\":10000", 1);
+
+    assert_eq!(input.len(), MAX_BYTES - 15);
+
+    let failure = match parse("over-limit.json", &input) {
+        Ok(_) => panic!("accepted input whose encoded result exceeds the byte limit"),
+        Err(error) => error,
+    };
+
+    assert_eq!(failure.file, PathBuf::from("over-limit.json"));
+    assert!(failure.detail.contains("encoded size"));
+
+    let path = temporary_file("canonical-limit");
+    std::fs::write(&path, input).unwrap();
+
+    let failure = match load(&path) {
+        Ok(_) => panic!("loaded input whose encoded result exceeds the byte limit"),
+        Err(error) => error,
+    };
+
+    assert_eq!(failure.file, path);
+    assert!(failure.detail.contains("encoded size"));
+
+    std::fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -248,4 +441,32 @@ fn invalid_analysis_never_overwrites_a_saved_result_or_html() {
 
     std::fs::remove_file(result_path).unwrap();
     std::fs::remove_file(html_path).unwrap();
+}
+
+#[test]
+fn oversized_output_is_rejected_before_replacing_a_file() {
+    let path = temporary_file("oversize-output");
+    let (world, trace) = rail_viewer::scenario();
+
+    save(&path, &world, &trace).unwrap();
+
+    let original = std::fs::read(&path).unwrap();
+
+    let mut snapshot = trace.snapshots[0].clone();
+    snapshot.passengers = vec![snapshot.passengers[0]; 300_000];
+
+    let oversized = RailTrace {
+        snapshots: vec![snapshot],
+        completed: false,
+    };
+
+    assert!(
+        save(&path, &world, &oversized)
+            .unwrap_err()
+            .detail
+            .contains("exceeds")
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+
+    std::fs::remove_file(path).unwrap();
 }

@@ -83,6 +83,6 @@ Standalone output is JSON. The viewer escapes `<`, `>`, `&`, U+2028, and U+2029 
 
 ## Fixtures and Validation
 
-The [full service fixture](tests/fixtures/rail_service.json) is shared by the Rust round-trip tests and browser playback assertions. [Partial](tests/fixtures/results/partial.json) and [completion-only](tests/fixtures/results/completion-only.json) fixtures exercise recordings without full analysis. [Result tests](tests/result_loading.rs) also cover exact integer boundaries, duplicate demands, repeated visits, malformed documents, unsupported versions, forged analysis, and preservation of existing output files on validation failure.
+The [full service fixture](tests/fixtures/rail_service.json) is shared by the Rust round-trip tests and browser playback assertions. [Partial](tests/fixtures/results/partial.json) and [completion-only](tests/fixtures/results/completion-only.json) fixtures exercise recordings without full analysis. [Result tests](tests/result_loading.rs) also cover exact integer boundaries, duplicate demands, repeated visits, malformed shapes and references, unsupported versions, byte limits, forged analysis, and preservation of existing output files on validation failure.
 
 Run `cargo test --test result_loading` for the adapter and the validation commands in [AGENTS.md](AGENTS.md) for the repository. No database, binary format, simulation checkpoint, or core serialization API is introduced.
