@@ -7,8 +7,10 @@ use rail_viewer::results::{RailResult, encode, load, parse, save};
 use rstest::rstest;
 use serde_json::{Value, json};
 use urbanflow::analysis::analyze;
-use urbanflow::rail::RailTrace;
-use urbanflow::world::World;
+use urbanflow::demand::Demand;
+use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailTrace, RailVehicle};
+use urbanflow::time::SimulationClock;
+use urbanflow::world::{EdgeKind, Network, Node, NodeId, World};
 
 const COMPLETE: &str = include_str!("fixtures/rail_service.json");
 const EMPTY: &str =
@@ -70,6 +72,104 @@ fn full_fixture_matches_the_shared_viewer_payload_exactly() {
         encode(&restored.world, &restored.trace).unwrap(),
         COMPLETE.split_ascii_whitespace().collect::<String>(),
     );
+}
+
+#[test]
+fn demo_and_all_recording_prefixes_and_resumed_histories_round_trip() {
+    let (world, trace) = rail_viewer::scenario();
+
+    for end in 0..=trace.snapshots.len() {
+        for start in [0, end.saturating_sub(1)] {
+            let recording = RailTrace {
+                snapshots: trace.snapshots[start..end].to_vec(),
+                completed: end == trace.snapshots.len(),
+            };
+
+            round_trip(&world, &recording);
+        }
+    }
+
+    let resumed = RailTrace {
+        snapshots: trace.snapshots[1..].to_vec(),
+        completed: true,
+    };
+
+    assert!(round_trip(&world, &resumed).analysis.is_none());
+}
+
+#[test]
+fn full_width_values_duplicate_demands_and_repeated_visits_survive() {
+    let mut network = Network::new();
+    network
+        .add_edge(NodeId(usize::MAX), NodeId(3), EdgeKind::Road)
+        .unwrap();
+
+    let edges = [(usize::MAX, 3), (3, usize::MAX)].map(|(from, to)| {
+        network
+            .add_edge(NodeId(from), NodeId(to), EdgeKind::Rail)
+            .unwrap()
+    });
+    let world = World {
+        nodes: [usize::MAX, 3].map(|id| Node { id: NodeId(id) }).to_vec(),
+        network,
+    };
+    let mut vehicle = RailVehicle::new(
+        RailRoute::new(&world.network, edges.to_vec()).unwrap(),
+        u32::MAX,
+        1,
+        1,
+    )
+    .unwrap();
+    let demand = Demand::new(NodeId(usize::MAX), NodeId(3), u32::MAX);
+    let mut passengers = RailPassengers::new(&[
+        demand,
+        demand,
+        Demand::new(NodeId(3), NodeId(usize::MAX), 0),
+    ]);
+    let mut clock = SimulationClock::default();
+    let mut trace = vehicle
+        .record_trace(&mut clock, &mut passengers, 4)
+        .unwrap();
+
+    for snapshot in &mut trace.snapshots {
+        snapshot.tick += u64::MAX - 4;
+    }
+
+    let restored = round_trip(&world, &trace);
+    let analysis = restored.analysis.unwrap();
+
+    assert_eq!(
+        analysis.passenger_outcomes.requested,
+        2 * u64::from(u32::MAX)
+    );
+    assert_eq!(analysis.route_timing.completion_tick, u64::MAX);
+    assert_eq!(analysis.stops[0].node, analysis.stops[2].node);
+    assert_eq!(analysis.stops[2].stop_index, 2);
+
+    let mut partial = RailTrace {
+        snapshots: vec![trace.snapshots[0].clone()],
+        completed: false,
+    };
+    partial.snapshots[0].position = RailPosition::AtStop {
+        stop_index: usize::MAX,
+        node: NodeId(usize::MAX),
+        dwell_ticks_remaining: u64::MAX,
+    };
+
+    round_trip(&world, &partial);
+
+    partial.snapshots[0] = trace.snapshots[1].clone();
+    partial.snapshots[0].tick = u64::MAX;
+    partial.snapshots[0].position = RailPosition::Traveling {
+        edge_index: usize::MAX,
+        edge: edges[0],
+        from: NodeId(usize::MAX),
+        to: NodeId(3),
+        travel_ticks_elapsed: u64::MAX - 1,
+        travel_ticks_total: u64::MAX,
+    };
+
+    round_trip(&world, &partial);
 }
 
 #[rstest]
