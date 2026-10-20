@@ -79,7 +79,7 @@ Every analysis requires a completed trace; `analyze` and `StopActivity::from_tra
 
 ## Browser Consumer
 
-The [`rail_viewer` example](examples/rail_viewer.rs) records service before generating one offline HTML file. Its [Rust module](examples/rail_viewer/mod.rs) serializes the world, trace, and optional core-produced analysis; its [template](examples/rail_viewer/viewer.html) owns layout, playback, and formatting. Identical inputs produce identical traces and HTML.
+The [`rail_viewer` example](examples/rail_viewer.rs) records service before generating one offline HTML file. Its [Rust module](examples/rail_viewer/mod.rs) calls a shared [payload serializer](examples/results/encode.rs) and escapes the JSON for an HTML script element; its [template](examples/rail_viewer/viewer.html) owns layout, playback, and formatting. Identical inputs produce identical traces and HTML.
 
 Playback reads fixed snapshots and never advances simulation. Only the vehicle marker is interpolated; status follows recorded ticks, and analysis stays fixed. IDs and `u64` values remain exact through string serialization and `BigInt` passenger totals. Partial traces and completed traces missing initial history remain viewable without analysis; other analysis errors prevent file writing. See [README](README.md#browser-viewer) for execution and the consumer's rustdoc for display contracts.
 
