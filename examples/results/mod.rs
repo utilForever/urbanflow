@@ -250,7 +250,7 @@ fn validate_partial(trace: &RailTrace) -> Result<(), AnalysisError> {
                 let arrivals = passenger.arrived.checked_sub(previous.arrived);
 
                 if passenger.waiting > previous.waiting
-                    || !arrivals.is_some_and(|count| count <= previous.onboard)
+                    || arrivals.is_none_or(|count| count > previous.onboard)
                     || passenger.unserved != previous.unserved
                 {
                     return Err(AnalysisError::InvalidPassengerTransition {
