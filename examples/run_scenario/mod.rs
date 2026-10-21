@@ -20,11 +20,14 @@ const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> 
 /// results. Env inputs fail because this consumer defines no action policy or
 /// Env result format. Errors include the input or output path where applicable.
 ///
-/// Outputs are staged beside their destinations, then renamed: HTML first,
-/// JSON last. Each replacement is atomic, but the pair is not a filesystem
-/// transaction: a final JSON rename failure can leave the new HTML installed.
+/// Outputs are staged inside temporary sibling directories. Native filename
+/// lookup there rejects aliases even when both destinations are absent, including
+/// case/Unicode aliases on filesystems that treat those names as equivalent.
+/// Files are then renamed: HTML first, JSON last. Each replacement is atomic,
+/// but the pair is not a filesystem transaction: a final JSON rename failure
+/// can leave the new HTML installed.
 /// Temporary files are removed on ordinary failures; crash durability is not
-/// guaranteed. Resolved input/output aliases and output directories are rejected.
+/// guaranteed. Input/output aliases and directories as outputs are rejected.
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
     let args: Vec<_> = args.into_iter().collect();
 
@@ -129,31 +132,50 @@ impl StagedOutput {
         contents: &str,
         other_output: Option<&Path>,
     ) -> Result<Self, String> {
-        static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
+        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
         loop {
-            let path = destination.with_file_name(format!(
+            let directory = destination.with_file_name(format!(
                 ".urbanflow-{}-{}.tmp",
                 std::process::id(),
-                NEXT_FILE.fetch_add(1, Ordering::Relaxed),
+                NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed),
             ));
 
-            if path == destination || Some(path.as_path()) == other_output {
+            match fs::create_dir(&directory) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(format!("{}: staging: {e}", destination.display())),
+            }
+
+            let staged = Self(directory.join(destination.file_name().unwrap()));
+
+            if std::iter::once(destination)
+                .chain(other_output)
+                .any(|output| fs::canonicalize(output).is_ok_and(|resolved| resolved == directory))
+            {
                 continue;
             }
 
-            let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
-                Ok(file) => file,
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(format!("{}: staging: {e}", destination.display())),
-            };
-            let staged = Self(path);
-            let written = file
-                .write_all(contents.as_bytes())
-                .and_then(|()| file.sync_all());
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&staged.0)
+                .map_err(|e| format!("{}: staging: {e}", destination.display()))?;
 
-            drop(file);
-            written.map_err(|e| format!("{}: staging: {e}", destination.display()))?;
+            if let Some(other) = other_output
+                && destination.parent() == other.parent()
+                && staged
+                    .0
+                    .with_file_name(other.file_name().unwrap())
+                    .try_exists()
+                    .map_err(|e| format!("{}: staging: {e}", other.display()))?
+            {
+                return Err("input, result, and HTML paths must be distinct".to_owned());
+            }
+
+            file.write_all(contents.as_bytes())
+                .and_then(|()| file.sync_all())
+                .map_err(|e| format!("{}: staging: {e}", destination.display()))?;
 
             return Ok(staged);
         }
@@ -167,6 +189,6 @@ impl StagedOutput {
 
 impl Drop for StagedOutput {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        let _ = fs::remove_dir_all(self.0.parent().unwrap());
     }
 }
