@@ -191,6 +191,35 @@ fn encoding_failure_after_recording_preserves_existing_outputs() {
     directory.assert_no_staging_files();
 }
 
+#[test]
+fn output_errors_and_aliases_preserve_existing_files() {
+    let directory = RunDirectory::new("output-errors");
+    let before = directory.seed_outputs();
+
+    for (index, path, expected) in [
+        (1, directory.0.join("./scenario.json"), "distinct"),
+        (2, directory.0.join("./result.json"), "distinct"),
+        (2, directory.0.join("./scenario.json"), "distinct"),
+        (1, directory.0.clone(), "regular file"),
+        (2, directory.0.join("missing/viewer.html"), "viewer.html"),
+        (2, directory.0.join("h".repeat(300)), "replacement"),
+    ] {
+        let mut args = directory.args();
+        args[index] = path.into_os_string();
+
+        let error = runner::run(args).unwrap_err();
+
+        assert!(error.contains(expected), "{error}");
+        assert_eq!(directory.outputs(), before);
+        assert_eq!(
+            fs::read_to_string(directory.0.join("scenario.json")).unwrap(),
+            RAIL
+        );
+
+        directory.assert_no_staging_files();
+    }
+}
+
 #[rstest]
 #[case::no_args(vec![], false)]
 #[case::missing_output(vec!["scenario.json"], false)]

@@ -79,6 +79,8 @@ Unsupported or missing versions are rejected; there is no automatic migration of
 
 Saving validates and encodes before opening the destination, so invalid analysis, malformed state, or oversized encoded output cannot overwrite a valid result. Rendering likewise finishes before the viewer writes HTML. Successful writes replace an existing file. Ordinary write failures, such as a full disk during the write, are returned but are not a transactional filesystem guarantee.
 
+The scenario CLI additionally stages outputs and replaces each file by rename, with JSON last. Invalid input, execution/encoding/rendering errors, staging failures, or failed HTML replacement preserve the existing JSON. JSON and HTML replacement are not one transaction; the CLI documents the possibility of updated HTML when the final JSON replacement fails.
+
 Standalone output is JSON. The viewer escapes `<`, `>`, `&`, U+2028, and U+2029 before embedding JSON into a script element, so strings cannot terminate the element or inject HTML. Consumers embedding JSON elsewhere must apply escaping appropriate to that context.
 
 ## Fixtures and Validation

@@ -66,7 +66,7 @@ Rail uses fixed travel/dwell durations and aggregate passenger counts. Vehicle c
 
 The [`run_scenario` consumer](examples/run_scenario/mod.rs) connects scenario loading to `RailVehicle::record_trace`, the result encoder, and optional offline viewer rendering. It passes the file's `max_ticks` directly to recording, retains partial state, and uses the existing result adapter for validation and analysis. Env files are rejected because the CLI has no action policy or Env result contract.
 
-The CLI rejects resolved input/output aliases and equal output paths. Loading, execution, analysis, encoding, and rendering finish before either output is opened, then HTML is written before JSON. Ordinary file writes are not atomic; an I/O failure during writing may leave that output incomplete. CLI I/O and exit behavior stay outside the core. See [command usage](README.md#run-a-scenario-file).
+All computation finishes before output staging. The CLI rejects resolved input/output aliases and equal output paths, stages files beside their destinations, and renames HTML before JSON. Each file replacement is atomic; the pair is not transactional, so a final JSON rename failure may leave updated HTML. Ordinary failures clean up temporary files. CLI I/O and exit behavior stay outside the core; the adapter's standalone `save` API retains its documented ordinary-write semantics. See [command usage](README.md#run-a-scenario-file).
 
 ### Operational Result Contracts
 
