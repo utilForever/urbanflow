@@ -31,7 +31,7 @@ Core outputs own their data. Consumers can retain observations and replay traces
 
 The [scenario file contract](SCENARIO_FORMAT.md) defines versioned consumer inputs for either Env or Rail. The [`scenario` consumer adapter](examples/scenario/mod.rs) reads UTF-8 JSON, checks the version before interpreting its fields, preserves array order, and converts decimal strings through checked `u64`/`usize` conversions. Edge IDs remain insertion indices. Serde, serde_json, and serde_path_to_error are development dependencies used only at this boundary; the core has no configuration hierarchy or serialization dependency.
 
-Loading returns a validated `Env` or a `RailScenario` containing the world, vehicle, passengers, tick-zero clock, and recording limit. `Network::add_edge`, `Env::validate_inputs` (including `World::validate_topology` and demand endpoints for both kinds), `Env::new`, `RailRoute::new`, and `RailVehicle::new` own simulation validation. The adapter adds strict file-shape/numeric checks and file/field diagnostics. It exposes no partial state on failure and performs no actions, ticks, analysis, or output writes. CLI execution remains separate consumer work.
+Loading returns a validated `Env` or a `RailScenario` containing the world, vehicle, passengers, tick-zero clock, and recording limit. `Network::add_edge`, `Env::validate_inputs` (including `World::validate_topology` and demand endpoints for both kinds), `Env::new`, `RailRoute::new`, and `RailVehicle::new` own simulation validation. The adapter adds strict file-shape/numeric checks and file/field diagnostics. It exposes no partial state on failure and performs no actions, ticks, analysis, or output writes.
 
 The [result adapter](examples/results/mod.rs) owns versioned Rail result persistence independently of scenario loading. It reuses the viewer payload, enforces the [result format](RESULT_FORMAT.md)'s byte limit, numeric bounds, topology references, and recording consistency, and reconstructs owned `World`/`RailTrace` values without simulation. Complete-trace analysis uses the core API; partial traces receive consumer-side consistency checks because core analysis requires completion. Imported analysis is discarded and recomputed, with missing initial history represented by no analysis. Loading checks canonical output size with that recomputed analysis before returning state. Validation does not certify every movement or boarding rule. Validation and encoding finish before opening output files; there is no core serialization hierarchy or new dependency.
 
@@ -61,6 +61,12 @@ All modules are public except `simulation`.
 The caller keeps a vehicle, clock, and passenger set together. `advance` coordinates one atomic tick of movement and stop processing; `snapshot` copies the state, and `record_trace` records bounded advances. A partial trace retains its last state without forcing unfinished journeys to complete.
 
 Rail uses fixed travel/dwell durations and aggregate passenger counts. Vehicle capacity is independent of network edge capacity; movement uses neither shortest-path routing nor congestion. Simulation ticks have no wall-clock unit or pacing policy. See the [Rail API](src/rail.rs) for timing and passenger contracts.
+
+### Scenario CLI
+
+The [`run_scenario` consumer](examples/run_scenario/mod.rs) connects scenario loading to `RailVehicle::record_trace`, the result encoder, and optional offline viewer rendering. It passes the file's `max_ticks` directly to recording, retains partial state, and uses the existing result adapter for validation and analysis. Env files are rejected because the CLI has no action policy or Env result contract.
+
+The CLI rejects resolved input/output aliases and equal output paths. Loading, execution, analysis, encoding, and rendering finish before either output is opened, then HTML is written before JSON. Ordinary file writes are not atomic; an I/O failure during writing may leave that output incomplete. CLI I/O and exit behavior stay outside the core. See [command usage](README.md#run-a-scenario-file).
 
 ### Operational Result Contracts
 
