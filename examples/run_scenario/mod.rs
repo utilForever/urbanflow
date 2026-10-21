@@ -6,9 +6,10 @@ pub mod rail_viewer;
 pub mod scenario;
 
 use std::ffi::OsString;
-use std::fs;
-use std::io;
+use std::fs::{self, OpenOptions};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> <result.json> [viewer.html]\nRuns kind=rail with the file's max_ticks; Env execution is unsupported.\nUse distinct input/output paths and existing output directories.";
 
@@ -19,10 +20,11 @@ const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> 
 /// results. Env inputs fail because this consumer defines no action policy or
 /// Env result format. Errors include the input or output path where applicable.
 ///
-/// Files are written only after all computation succeeds, HTML first and JSON
-/// last. Successful writes replace files; an I/O error during a write can leave
-/// that output incomplete. Resolved input/output aliases and directories as
-/// outputs are rejected. File writes are not a filesystem transaction.
+/// Outputs are staged beside their destinations, then renamed: HTML first,
+/// JSON last. Each replacement is atomic, but the pair is not a filesystem
+/// transaction: a final JSON rename failure can leave the new HTML installed.
+/// Temporary files are removed on ordinary failures; crash durability is not
+/// guaranteed. Resolved input/output aliases and output directories are rejected.
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
     let args: Vec<_> = args.into_iter().collect();
 
@@ -71,11 +73,13 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
         })
         .transpose()?;
 
+    let staged_result = StagedOutput::new(&result, &json, html.as_deref())?;
+
     if let (Some(path), Some(contents)) = (&html, &rendered) {
-        fs::write(path, contents).map_err(|e| format!("{}: write: {e}", path.display()))?;
+        StagedOutput::new(path, contents, Some(&result))?.replace(path)?;
     }
 
-    fs::write(&result, json).map_err(|e| format!("{}: write: {e}", result.display()))?;
+    staged_result.replace(&result)?;
 
     Ok(format!(
         "{} at tick {}; {} snapshots; result: {}{}",
@@ -115,4 +119,54 @@ fn output_path(path: &Path) -> Result<PathBuf, String> {
     }
 
     Ok(resolved)
+}
+
+struct StagedOutput(PathBuf);
+
+impl StagedOutput {
+    fn new(
+        destination: &Path,
+        contents: &str,
+        other_output: Option<&Path>,
+    ) -> Result<Self, String> {
+        static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
+
+        loop {
+            let path = destination.with_file_name(format!(
+                ".urbanflow-{}-{}.tmp",
+                std::process::id(),
+                NEXT_FILE.fetch_add(1, Ordering::Relaxed),
+            ));
+
+            if path == destination || Some(path.as_path()) == other_output {
+                continue;
+            }
+
+            let mut file = match OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => file,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(format!("{}: staging: {e}", destination.display())),
+            };
+            let staged = Self(path);
+            let written = file
+                .write_all(contents.as_bytes())
+                .and_then(|()| file.sync_all());
+
+            drop(file);
+            written.map_err(|e| format!("{}: staging: {e}", destination.display()))?;
+
+            return Ok(staged);
+        }
+    }
+
+    fn replace(self, destination: &Path) -> Result<(), String> {
+        fs::rename(&self.0, destination)
+            .map_err(|e| format!("{}: replacement: {e}", destination.display()))
+    }
+}
+
+impl Drop for StagedOutput {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
