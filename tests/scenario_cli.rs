@@ -148,6 +148,59 @@ fn html_is_optional() {
 }
 
 #[rstest]
+#[case::case("result.json", "RESULT.JSON")]
+#[case::unicode("\u{e9}.json", "e\u{301}.json")]
+fn output_names_follow_filesystem_alias_rules(#[case] first: &str, #[case] second: &str) {
+    let directory = RunDirectory::new(first);
+    let result = directory.0.join(first);
+    let html = directory.0.join(second);
+
+    // Detect the actual volume's rules, then exercise two absent destinations.
+    fs::write(&result, "probe").unwrap();
+
+    let aliases = html.try_exists().unwrap();
+
+    fs::remove_file(&result).unwrap();
+
+    let args = vec![
+        directory.0.join("scenario.json").into_os_string(),
+        result.clone().into_os_string(),
+        html.clone().into_os_string(),
+    ];
+    let outcome = runner::run(args.clone());
+
+    if aliases {
+        assert!(outcome.unwrap_err().contains("distinct"));
+        assert!(!result.exists() && !html.exists());
+        assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+
+        runner::run(args[..2].iter().cloned()).unwrap();
+
+        let before = fs::read(&result).unwrap();
+
+        assert!(runner::run(args).unwrap_err().contains("distinct"));
+        assert_eq!(fs::read(&result).unwrap(), before);
+        assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 2);
+    } else {
+        outcome.unwrap();
+
+        let saved = results::load(&result).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&html).unwrap(),
+            rail_viewer::render(&saved.world, &saved.trace).unwrap(),
+        );
+
+        directory.assert_no_staging_files();
+    }
+
+    assert_eq!(
+        fs::read_to_string(directory.0.join("scenario.json")).unwrap(),
+        RAIL
+    );
+}
+
+#[rstest]
 #[case::invalid("{", "JSON")]
 #[case::version(include_str!("fixtures/scenarios/unsupported-version.json"), "version")]
 #[case::env(include_str!("fixtures/scenarios/env-baseline.json"), "supports only rail")]
@@ -202,7 +255,7 @@ fn output_errors_and_aliases_preserve_existing_files() {
         (2, directory.0.join("./scenario.json"), "distinct"),
         (1, directory.0.clone(), "regular file"),
         (2, directory.0.join("missing/viewer.html"), "viewer.html"),
-        (2, directory.0.join("h".repeat(300)), "replacement"),
+        (2, directory.0.join("h".repeat(300)), "staging"),
     ] {
         let mut args = directory.args();
         args[index] = path.into_os_string();
