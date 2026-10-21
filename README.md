@@ -79,7 +79,21 @@ Metrics report served and unserved demand, congestion, and construction cost. Se
 
 The [version 1 scenario format](SCENARIO_FORMAT.md) specifies JSON inputs for independent Env and Rail runs, with ordered topology and demand, exact integer IDs and ticks, and representative valid/invalid fixtures. The consumer adapter in [`examples/scenario/mod.rs`](examples/scenario/mod.rs) provides `load(path)` and `parse(file, json)`, returning either a validated `Env` or fresh Rail inputs without running any actions or ticks. Errors identify the file and offending field or array index. IDs and step limits must fit the target's `usize`; tick values retain their full `u64` range.
 
-The loader's [integration tests](tests/scenario_loading.rs) compare file inputs with the Rust-built baseline and Rail demo, including traces, analysis, ordering, and partial recordings. Run them with `cargo test --test scenario_loading`. Parsing dependencies are development-only; the core library has no serialization dependency. Existing example commands still use their built-in scenarios; file execution and output generation are tracked in [#207](https://github.com/utilForever/urbanflow/issues/207).
+The loader's [integration tests](tests/scenario_loading.rs) compare file inputs with the Rust-built baseline and Rail demo, including traces, analysis, ordering, and partial recordings. Run them with `cargo test --test scenario_loading`. Parsing dependencies are development-only; the core library has no serialization dependency.
+
+### Run a Scenario File
+
+```bash
+cargo run --example run_scenario -- tests/fixtures/scenarios/rail-demo.json result.json viewer.html
+```
+
+The [`run_scenario` example](examples/run_scenario.rs) loads a Rail scenario, records at most its `max_ticks`, and saves version 1 result JSON with analysis when complete. The optional third argument writes an offline HTML viewer; omit it for JSON only. The demo completes at tick 18 with 19 snapshots. Repeated runs produce identical JSON and HTML. Use `--help` for usage.
+
+A zero or short limit succeeds with an explicitly `Partial` status, `completed: false`, and `analysis: null`; waiting/onboard passengers stay in the viewable recording. `Completed` describes vehicle completion, not universal passenger arrival. Env scenarios are rejected: this command defines no Env action policy or result format. The other examples retain their built-in scenarios.
+
+Exit status is 0 for success (including partial runs and help), or 1 with a diagnostic on stderr for argument, input, execution, analysis, size, or output errors. Use distinct input/result/HTML paths and existing output directories. Resolved input aliases and equal output paths are rejected. Validation, execution, encoding, and rendering finish before replacement, so failures in those stages leave existing outputs unchanged. HTML is written before JSON. Successful writes overwrite existing outputs; an I/O failure during writing can leave that output incomplete. File writes are not a filesystem transaction. The result format's 16 MiB limit applies, but `max_ticks` does not bound total memory use.
+
+Run `cargo test --test scenario_cli` for execution, deterministic output, partial runs, and failure preservation checks.
 
 ### Rail Trace
 
@@ -107,7 +121,7 @@ The [analysis rustdoc](src/analysis.rs) defines units, interval accounting, unde
 
 The [result adapter](examples/results/mod.rs) provides `save(path, &world, &trace)` and `load(path)`, plus in-memory `encode` and `parse`. Its [version 1 JSON format](RESULT_FORMAT.md) preserves exact IDs, ticks, counts, ordering, and completion state within a 16 MiB file limit. Loaded results contain the world, trace, and recomputed optional analysis; imported analysis is never trusted. Partial and completion-only recordings remain viewable without full analysis.
 
-The viewer uses the same encoder. Loading checks both input size and the encoded size with recomputed analysis, so an unchanged loaded result fits the output limit. Invalid state or analysis is rejected before replacing an output file. Run `cargo test --test result_loading` for round-trip and malformed-input coverage. CLI integration remains tracked in [#207](https://github.com/utilForever/urbanflow/issues/207).
+The viewer uses the same encoder. Loading checks both input size and the encoded size with recomputed analysis, so an unchanged loaded result fits the output limit. Invalid state or analysis is rejected before replacing an output file. Run `cargo test --test result_loading` for round-trip and malformed-input coverage. Use [`run_scenario`](#run-a-scenario-file) to generate JSON and optional HTML from a Rail scenario file.
 
 ### Browser Viewer
 

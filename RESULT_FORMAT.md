@@ -10,7 +10,7 @@ Include `examples/results/mod.rs` as a module, as the viewer does. The adapter p
 - `load(path)`: read and validate JSON, returning a `RailResult` with `world`, `trace`, and freshly computed optional `analysis`.
 - `encode(&world, &trace)` and `parse(file, json)`: the same conversion without file I/O. The `file` argument qualifies parse errors.
 
-Pass the loaded world and trace to `rail_viewer::render` for offline playback. Loading and rendering do not run the simulation or mutate an existing run. The viewer uses this same encoder, so saved and embedded payloads have identical values. Command-line file selection and scenario execution remain tracked in [#207](https://github.com/utilForever/urbanflow/issues/207); the current viewer command still records its built-in demo.
+Pass the loaded world and trace to `rail_viewer::render` for offline playback. Loading and rendering do not run the simulation or mutate an existing run. The viewer uses this same encoder, so saved and embedded payloads have identical values. The [`run_scenario` CLI](README.md#run-a-scenario-file) generates result JSON and optional HTML from a Rail scenario file; the `rail_viewer` command still records its built-in demo. Saved result loading remains an adapter API.
 
 ## Document Shape
 
