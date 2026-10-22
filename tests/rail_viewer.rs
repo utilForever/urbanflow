@@ -1,5 +1,5 @@
 #[path = "../examples/rail_viewer/mod.rs"]
-mod rail_viewer;
+pub mod rail_viewer;
 
 use urbanflow::analysis::{
     AnalysisError, OperationalAnalysis, PassengerOutcomes, PassengerTimes, RouteTiming,
@@ -251,7 +251,10 @@ fn fixed_route_service_reaches_the_viewer_end_to_end() {
     assert_eq!(VehicleOccupancy::from_trace(&invalid), Err(error));
     assert_eq!(StopActivity::from_trace(&invalid), Err(error));
     assert_eq!(RouteTiming::from_trace(&invalid), Err(error));
-    assert_eq!(rail_viewer::render(&world, &invalid), Err(error));
+    assert_eq!(
+        rail_viewer::render(&world, &invalid).unwrap_err().detail,
+        error.to_string()
+    );
     assert_eq!(invalid, before);
 }
 
@@ -288,7 +291,7 @@ fn viewer_embeds_ordered_network_and_core_positions_without_losing_integer_preci
     let data = embedded_data(&html);
 
     assert!(data.starts_with(&format!(
-        "{{\"nodes\":[\"7\",\"3\",\"{}\"],\"edges\":[{{\"id\":\"0\",\"from\":\"7\",\"to\":\"3\",\"kind\":\"Road\"}},{{\"id\":\"1\",\"from\":\"7\",\"to\":\"3\",\"kind\":\"Rail\"}}],\"trace\":{{\"completed\":true,\"snapshots\":[",
+        "{{\"version\":1,\"nodes\":[\"7\",\"3\",\"{}\"],\"edges\":[{{\"id\":\"0\",\"from\":\"7\",\"to\":\"3\",\"kind\":\"Road\"}},{{\"id\":\"1\",\"from\":\"7\",\"to\":\"3\",\"kind\":\"Rail\"}}],\"trace\":{{\"completed\":true,\"snapshots\":[",
         usize::MAX
     )));
 
@@ -415,8 +418,8 @@ fn viewer_preserves_resumed_and_completion_only_recordings_without_analysis() {
         invalid.snapshots[0].occupancy = 3;
 
         assert_eq!(
-            rail_viewer::render(&world, &invalid),
-            Err(AnalysisError::InvalidOccupancy { snapshot_index: 0 }),
+            rail_viewer::render(&world, &invalid).unwrap_err().detail,
+            AnalysisError::InvalidOccupancy { snapshot_index: 0 }.to_string(),
         );
     }
 }
@@ -429,8 +432,8 @@ fn viewer_propagates_completed_trace_analysis_errors_without_mutation() {
     let before = trace.clone();
 
     assert_eq!(
-        rail_viewer::render(&world, &trace),
-        Err(AnalysisError::InvalidOccupancy { snapshot_index: 1 }),
+        rail_viewer::render(&world, &trace).unwrap_err().detail,
+        AnalysisError::InvalidOccupancy { snapshot_index: 1 }.to_string(),
     );
     assert_eq!(trace, before);
 }

@@ -1,5 +1,5 @@
 #[path = "rail_viewer/mod.rs"]
-mod rail_viewer;
+pub mod rail_viewer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);

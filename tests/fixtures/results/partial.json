@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "nodes": ["8", "3", "21"],
+  "edges": [
+    {
+      "id": "0",
+      "from": "8",
+      "to": "21",
+      "kind": "Road"
+    },
+    {
+      "id": "1",
+      "from": "8",
+      "to": "3",
+      "kind": "Rail"
+    },
+    {
+      "id": "2",
+      "from": "3",
+      "to": "21",
+      "kind": "Rail"
+    }
+  ],
+  "trace": {
+    "completed": false,
+    "snapshots": [
+      {
+        "tick": "1",
+        "position": {
+          "kind": "Traveling",
+          "edge_index": "0",
+          "edge": "1",
+          "from": "8",
+          "to": "3",
+          "travel_ticks_elapsed": "0",
+          "travel_ticks_total": "2"
+        },
+        "occupancy": 2,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 2,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 1,
+            "onboard": 2,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          }
+        ]
+      },
+      {
+        "tick": "2",
+        "position": {
+          "kind": "Traveling",
+          "edge_index": "0",
+          "edge": "1",
+          "from": "8",
+          "to": "3",
+          "travel_ticks_elapsed": "1",
+          "travel_ticks_total": "2"
+        },
+        "occupancy": 2,
+        "capacity": 2,
+        "passengers": [
+          {
+            "from": "3",
+            "to": "21",
+            "amount": 2,
+            "waiting": 2,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "3",
+            "amount": 3,
+            "waiting": 1,
+            "onboard": 2,
+            "arrived": 0,
+            "unserved": 0
+          },
+          {
+            "from": "8",
+            "to": "21",
+            "amount": 1,
+            "waiting": 1,
+            "onboard": 0,
+            "arrived": 0,
+            "unserved": 0
+          }
+        ]
+      }
+    ]
+  },
+  "analysis": null
+}
