@@ -10,7 +10,7 @@ Include `examples/results/mod.rs` as a module, as the viewer does. The adapter p
 - `load(path)`: read and validate JSON, returning a `RailResult` with `world`, `trace`, and freshly computed optional `analysis`.
 - `encode(&world, &trace)` and `parse(file, json)`: the same conversion without file I/O. The `file` argument qualifies parse errors.
 
-Pass the loaded world and trace to `rail_viewer::render` for offline playback. Loading and rendering do not run the simulation or mutate an existing run. The viewer uses this same encoder, so saved and embedded payloads have identical values. Command-line file selection and scenario execution remain tracked in [#207](https://github.com/utilForever/urbanflow/issues/207); the current viewer command still records its built-in demo.
+Pass the loaded world and trace to `rail_viewer::render` for offline playback. Loading and rendering do not run the simulation or mutate an existing run. The viewer uses this same encoder, so saved and embedded payloads have identical values. The [`run_scenario` CLI](README.md#run-a-scenario-file) generates result JSON and optional HTML from a Rail scenario file; the `rail_viewer` command still records its built-in demo. Saved result loading remains an adapter API.
 
 ## Document Shape
 
@@ -78,6 +78,8 @@ See [analysis rustdoc](src/analysis.rs) for accounting units, intervals, history
 Unsupported or missing versions are rejected; there is no automatic migration of unversioned viewer payloads. `ResultError` carries the file and diagnostic detail, including field or snapshot indices where available. In-memory encoding uses `<result>` as the file label. No partial loaded state is returned on error.
 
 Saving validates and encodes before opening the destination, so invalid analysis, malformed state, or oversized encoded output cannot overwrite a valid result. Rendering likewise finishes before the viewer writes HTML. Successful writes replace an existing file. Ordinary write failures, such as a full disk during the write, are returned but are not a transactional filesystem guarantee.
+
+The scenario CLI additionally stages outputs and replaces each file by rename, with JSON last. Invalid input, execution/encoding/rendering errors, staging failures, or failed HTML replacement preserve the existing JSON. JSON and HTML replacement are not one transaction; the CLI documents the possibility of updated HTML when the final JSON replacement fails.
 
 Standalone output is JSON. The viewer escapes `<`, `>`, `&`, U+2028, and U+2029 before embedding JSON into a script element, so strings cannot terminate the element or inject HTML. Consumers embedding JSON elsewhere must apply escaping appropriate to that context.
 
