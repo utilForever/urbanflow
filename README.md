@@ -139,7 +139,9 @@ To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod
 
 ### GPUI Kit Feasibility Prototype
 
-The [recorded playback model](prototypes/gpui/README.md) shares the existing Rail fixture and result adapter. It reads snapshots without advancing simulation. Run `cargo test --test gpui_playback` to check values against the HTML viewer, timing, seek bounds, partial traces, and exact tick labels without GUI dependencies.
+The isolated [GPUI Kit trial](prototypes/gpui/README.md) replays the existing seven-snapshot Rail fixture on a pinned desktop/web UI stack. It includes nodes, a vehicle marker, play/pause, snapshot seeking, keyboard controls, and selected operational analysis values. The Fluent 2-style interface supports light/dark switching without resetting playback. Playback only reads recorded state. GUI dependencies stay in the prototype's separate Cargo workspace; `cargo test --test gpui_playback` checks parity with the HTML viewer without building GPUI.
+
+See the trial report for reproducible platform commands and accessibility limits. The offline HTML/SVG viewer remains the supported fallback.
 
 ## Baseline RL examples
 
