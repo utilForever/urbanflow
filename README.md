@@ -137,6 +137,10 @@ The status panel follows the selected snapshot; the operational summary stays fi
 
 To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod.rs). Rendering and result serialization stay in consumer modules.
 
+### GPUI Kit Feasibility Prototype
+
+The [recorded playback model](prototypes/gpui/README.md) shares the existing Rail fixture and result adapter. It reads snapshots without advancing simulation. Run `cargo test --test gpui_playback` to check values against the HTML viewer, timing, seek bounds, partial traces, and exact tick labels without GUI dependencies.
+
 ## Baseline RL examples
 
 ```bash

@@ -91,6 +91,10 @@ The [`rail_viewer` example](examples/rail_viewer.rs) records service before gene
 
 Playback reads fixed snapshots and never advances simulation. Only the vehicle marker is interpolated; status follows recorded ticks, and analysis stays fixed. IDs and `u64` values remain exact through string serialization and `BigInt` passenger totals. Partial traces and completed traces missing initial history remain viewable without analysis; other analysis errors prevent file writing. See [README](README.md#browser-viewer) for execution and the consumer's rustdoc for display contracts.
 
+## GPUI Kit Feasibility Consumer
+
+The [`prototypes/gpui`](prototypes/gpui/README.md) playback model reads the existing `tests/fixtures/rail_service.json` through the result adapter. Its cursor and wall-clock pacing remain consumer state; no `RailVehicle`, simulation clock, or simulation step is used. Root integration tests exercise this module without GUI dependencies.
+
 ## Planned Direction
 
 Current Rail service has one fixed-route vehicle. Multiple vehicles/routes, automatic reverse service, timetables, headways, transfers, Tram/DRT service, road traffic (signals, lanes, congestion-driven movement), and GIS maps remain deferred.
