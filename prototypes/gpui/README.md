@@ -18,3 +18,7 @@ Issue [#208](https://github.com/utilForever/urbanflow/issues/208). This first st
 | Elapsed / traveling / dwelling   | 6 / 4 / 2 ticks                      |
 
 `cargo test --test gpui_playback` from the repository root checks the actual shared playback module against the existing viewer payload and hand-checked values. It covers pause/resume timing, seek bounds, completion, empty/single/partial recordings, exact `u64` tick labels, and unchanged serialized results after playback. Those broader model tests do not make the fixed UI a general result-file browser.
+
+## Bundled typography
+
+[Pretendard 1.3.9](https://github.com/orioncactus/pretendard/releases/tag/v1.3.9) Regular, Medium, SemiBold, and Bold are bundled with their SIL Open Font License in `assets/`. These are the unchanged `public/static/*.otf` files from the official `Pretendard-1.3.9.zip` release. The four weights used by this screen total 6,318,784 bytes (6.03 MiB); no font installation or external font request is needed.
