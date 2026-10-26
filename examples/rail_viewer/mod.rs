@@ -1,8 +1,8 @@
-use std::fmt::Write;
+#[path = "../results/mod.rs"]
+pub mod results;
 
-use urbanflow::analysis::{self, AnalysisError, OperationalAnalysis};
 use urbanflow::demand::Demand;
-use urbanflow::rail::{RailPassengers, RailPosition, RailRoute, RailTrace, RailVehicle};
+use urbanflow::rail::{RailPassengers, RailRoute, RailTrace, RailVehicle};
 use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, Network, Node, NodeId, World};
 
@@ -49,13 +49,13 @@ pub fn scenario() -> (World, RailTrace) {
 
 /// Embeds a world, its recorded trace, and completed-run analysis in offline HTML.
 ///
-/// Inputs come from the same valid scenario. The fixed JSON schema contains
-/// only numbers and enum labels, so no caller-supplied text needs escaping.
+/// Uses the versioned result adapter and escapes JSON for an HTML script element.
+/// Invalid topology, snapshots, or complete-trace analysis fail before rendering.
 /// IDs and u64 values are strings to preserve precision in JavaScript; per-demand
 /// counts fit exactly in JavaScript numbers. Undefined analysis values use null.
 /// Partial traces and completed traces missing their initial service state have
 /// no analysis, but retain their snapshots for playback and inspection. Other
-/// `analysis::analyze` errors are returned before producing HTML.
+/// analysis errors are returned before producing HTML.
 /// All metrics come from the core.
 ///
 /// The template lays out nodes clockwise in stored order and separates parallel
@@ -70,161 +70,32 @@ pub fn scenario() -> (World, RailTrace) {
 /// Analysis tables render once in route-visit order, retaining repeated nodes.
 /// Means use two decimal places, shares/load factors use percentages, undefined
 /// values use `N/A`, and integers keep their full precision.
-pub fn render(world: &World, trace: &RailTrace) -> Result<String, AnalysisError> {
-    let analysis = match trace
-        .completed
-        .then(|| analysis::analyze(trace))
-        .transpose()
-    {
-        Ok(analysis) => analysis,
-        Err(AnalysisError::MissingInitialState) => None,
-        Err(error) => return Err(error),
-    };
-    let mut data = String::from("{\"nodes\":[");
-
-    for (index, node) in world.nodes.iter().enumerate() {
-        if index > 0 {
-            data.push(',');
-        }
-
-        write!(data, "\"{}\"", node.id.0).unwrap();
-    }
-
-    data.push_str("],\"edges\":[");
-
-    for (index, edge) in world.network.edges().iter().enumerate() {
-        if index > 0 {
-            data.push(',');
-        }
-
-        let kind = match edge.kind {
-            EdgeKind::Road => "Road",
-            EdgeKind::Rail => "Rail",
-        };
-        write!(
-            data,
-            r#"{{"id":"{}","from":"{}","to":"{}","kind":"{kind}"}}"#,
-            edge.id.0, edge.from.0, edge.to.0
-        )
-        .unwrap();
-    }
-
-    write!(
-        data,
-        "],\"trace\":{{\"completed\":{},\"snapshots\":[",
-        trace.completed
-    )
-    .unwrap();
-
-    for (index, snapshot) in trace.snapshots.iter().enumerate() {
-        if index > 0 {
-            data.push(',');
-        }
-
-        write!(data, "{{\"tick\":\"{}\",\"position\":", snapshot.tick).unwrap();
-
-        match snapshot.position {
-            RailPosition::AtStop { stop_index, node, dwell_ticks_remaining } => write!(
-                data,
-                r#"{{"kind":"AtStop","stop_index":"{stop_index}","node":"{}","dwell_ticks_remaining":"{dwell_ticks_remaining}"}}"#,
-                node.0
-            ),
-            RailPosition::Traveling { edge_index, edge, from, to, travel_ticks_elapsed, travel_ticks_total } => write!(
-                data,
-                r#"{{"kind":"Traveling","edge_index":"{edge_index}","edge":"{}","from":"{}","to":"{}","travel_ticks_elapsed":"{travel_ticks_elapsed}","travel_ticks_total":"{travel_ticks_total}"}}"#,
-                edge.0, from.0, to.0
-            ),
-            RailPosition::Complete { stop_index, node } => write!(
-                data,
-                r#"{{"kind":"Complete","stop_index":"{stop_index}","node":"{}"}}"#,
-                node.0
-            ),
-        }.unwrap();
-
-        write!(
-            data,
-            ",\"occupancy\":{},\"capacity\":{},\"passengers\":[",
-            snapshot.occupancy, snapshot.capacity
-        )
-        .unwrap();
-
-        for (index, passenger) in snapshot.passengers.iter().enumerate() {
-            if index > 0 {
-                data.push(',');
-            }
-
-            write!(
-                data,
-                r#"{{"from":"{}","to":"{}","amount":{},"waiting":{},"onboard":{},"arrived":{},"unserved":{}}}"#,
-                passenger.demand.origin.0, passenger.demand.destination.0, passenger.demand.amount,
-                passenger.waiting, passenger.onboard, passenger.arrived, passenger.unserved
-            ).unwrap();
-        }
-
-        data.push_str("]}");
-    }
-
-    data.push_str("]},\"analysis\":");
-
-    if let Some(analysis) = analysis {
-        write_analysis(&mut data, &analysis);
-    } else {
-        data.push_str("null");
-    }
-
-    data.push('}');
-
-    Ok(include_str!("viewer.html").replace("__TRACE_DATA__", &data))
+pub fn render(world: &World, trace: &RailTrace) -> Result<String, results::ResultError> {
+    let data = results::encode(world, trace)?;
+    Ok(include_str!("viewer.html").replace("__TRACE_DATA__", &escape_json(&data)))
 }
 
-fn write_analysis(data: &mut String, analysis: &OperationalAnalysis) {
-    let optional = |value: Option<f64>| value.map_or_else(|| "null".into(), |v| v.to_string());
-    let outcomes = analysis.passenger_outcomes;
+// Script elements parse HTML even when their type is application/json.
+fn escape_json(json: &str) -> String {
+    json.replace('&', "\\u0026")
+        .replace('<', "\\u003c")
+        .replace('>', "\\u003e")
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
+}
 
-    write!(
-        data,
-        r#"{{"passenger_outcomes":{{"requested":"{}","arrived":"{}","unserved":"{}","served_share":{}}}"#,
-        outcomes.requested, outcomes.arrived, outcomes.unserved, optional(outcomes.served_share),
-    ).unwrap();
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn embedded_json_cannot_close_its_script_element() {
+        let value =
+            serde_json::json!({"text": "</script><script>alert('&')</script>\u{2028}\u{2029}"});
+        let escaped = super::escape_json(&value.to_string());
 
-    let times = analysis.passenger_times;
-
-    write!(
-        data,
-        r#","passenger_times":{{"waiting_passenger_ticks":"{}","onboard_passenger_ticks":"{}","arrived_waiting_passenger_ticks":"{}","arrived_onboard_passenger_ticks":"{}","mean_waiting_ticks":{},"mean_onboard_ticks":{},"mean_journey_ticks":{}}}"#,
-        times.waiting_passenger_ticks, times.onboard_passenger_ticks,
-        times.arrived_waiting_passenger_ticks, times.arrived_onboard_passenger_ticks,
-        optional(times.mean_waiting_ticks), optional(times.mean_onboard_ticks), optional(times.mean_journey_ticks),
-    ).unwrap();
-
-    let occupancy = analysis.vehicle_occupancy;
-
-    write!(
-        data,
-        r#","vehicle_occupancy":{{"capacity":{},"max_occupancy":{},"occupied_passenger_ticks":"{}","mean_occupancy":{},"max_load_factor":{},"mean_load_factor":{}}}"#,
-        occupancy.capacity, occupancy.max_occupancy, occupancy.occupied_passenger_ticks,
-        optional(occupancy.mean_occupancy), optional(occupancy.max_load_factor), optional(occupancy.mean_load_factor),
-    ).unwrap();
-
-    data.push_str(",\"stops\":[");
-
-    for (index, stop) in analysis.stops.iter().enumerate() {
-        if index > 0 {
-            data.push(',');
-        }
-
-        write!(
-            data,
-            r#"{{"stop_index":"{}","node":"{}","boarded":"{}","alighted":"{}","remaining_waiting":"{}"}}"#,
-            stop.stop_index, stop.node.0, stop.boarded, stop.alighted, stop.remaining_waiting,
-        ).unwrap();
+        assert!(!escaped.contains(['<', '>', '&', '\u{2028}', '\u{2029}']));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&escaped).unwrap(),
+            value
+        );
     }
-
-    let timing = analysis.route_timing;
-
-    write!(
-        data,
-        r#"],"route_timing":{{"elapsed_ticks":"{}","traveling_ticks":"{}","dwelling_ticks":"{}","completion_tick":"{}"}}}}"#,
-        timing.elapsed_ticks, timing.traveling_ticks, timing.dwelling_ticks, timing.completion_tick,
-    ).unwrap();
 }
