@@ -1,6 +1,6 @@
 # Scenario File Format, Version 1
 
-This is the consumer-side input contract for [#204](https://github.com/utilForever/urbanflow/issues/204), implemented by the [scenario loader](examples/scenario/mod.rs) for [#205](https://github.com/utilForever/urbanflow/issues/205). The existing example commands still construct inputs in Rust; CLI integration is tracked in [#207](https://github.com/utilForever/urbanflow/issues/207). The normative fixtures below are accepted or rejected by the loader, not by today's viewer CLI.
+This is the consumer-side input contract for [#204](https://github.com/utilForever/urbanflow/issues/204), implemented by the [scenario loader](examples/scenario/mod.rs) for [#205](https://github.com/utilForever/urbanflow/issues/205). The [`run_scenario` CLI](README.md#run-a-scenario-file) executes Rail files and writes result JSON and optional offline HTML. It rejects Env files because no action policy or Env result format is defined. The other examples still construct inputs in Rust. The normative fixtures below describe loader acceptance; CLI execution additionally requires a Rail kind and valid output paths.
 
 One UTF-8 JSON file contains one object describing a fresh `env` or `rail` scenario. These kinds run independently: Env actions do not move a Rail vehicle, and Rail movement does not evaluate Env rewards. The file is not a saved episode, trace, analysis result, or viewer payload.
 
