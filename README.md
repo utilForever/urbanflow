@@ -137,6 +137,12 @@ The status panel follows the selected snapshot; the operational summary stays fi
 
 To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod.rs). Rendering and result serialization stay in consumer modules.
 
+### GPUI Kit Feasibility Prototype
+
+The isolated [GPUI Kit trial](prototypes/gpui/README.md) replays the existing seven-snapshot Rail fixture on a pinned desktop/web UI stack. It includes nodes, a vehicle marker, play/pause, snapshot seeking, keyboard controls, and selected operational analysis values. The Fluent 2-style interface supports light/dark switching without resetting playback. Playback only reads recorded state. GUI dependencies stay in the prototype's separate Cargo workspace; `cargo test --test gpui_playback` checks parity with the HTML viewer without building GPUI.
+
+See the trial report for reproducible platform commands and accessibility limits. The offline HTML/SVG viewer remains the supported fallback.
+
 ## Baseline RL examples
 
 ```bash

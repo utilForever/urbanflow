@@ -91,10 +91,14 @@ The [`rail_viewer` example](examples/rail_viewer.rs) records service before gene
 
 Playback reads fixed snapshots and never advances simulation. Only the vehicle marker is interpolated; status follows recorded ticks, and analysis stays fixed. IDs and `u64` values remain exact through string serialization and `BigInt` passenger totals. Partial traces and completed traces missing initial history remain viewable without analysis; other analysis errors prevent file writing. See [README](README.md#browser-viewer) for execution and the consumer's rustdoc for display contracts.
 
+## GPUI Kit Feasibility Consumer
+
+The isolated [`prototypes/gpui`](prototypes/gpui/README.md) consumer evaluates a pinned GPUI Kit desktop/web stack using `tests/fixtures/rail_service.json`. Both targets parse the same embedded result through the existing result adapter. Its playback cursor and wall-clock pacing remain consumer state; no `RailVehicle`, simulation clock, or simulation step is used. The appearance module maps Fluent 2 light/dark colors onto the Kit theme; changing appearance does not mutate playback. Root integration tests exercise the same playback module without GUI dependencies, while the isolated workspace tests palette contrast. The prototype has its own Cargo workspace, lockfile, and toolchain, and does not select the application's production UI stack.
+
 ## Planned Direction
 
 Current Rail service has one fixed-route vehicle. Multiple vehicles/routes, automatic reverse service, timetables, headways, transfers, Tram/DRT service, road traffic (signals, lanes, congestion-driven movement), and GIS maps remain deferred.
 
-Broader analysis, statistical experiments, confidence intervals, optimization, large-scale low-latency simulation, and application integrations are also planned. Dataframes, databases, query engines, charting dependencies, hosted dashboards, web servers, WebAssembly, and frontend frameworks are outside the current workflow.
+Broader analysis, statistical experiments, confidence intervals, optimization, large-scale low-latency simulation, and application integrations are also planned. Dataframes, databases, query engines, charting dependencies, hosted dashboards, and frontend frameworks remain outside the supported workflow; WebAssembly is limited to the isolated feasibility trial above.
 
 Future interfaces should use the public API and keep rendering, coordinates, serialization, storage, and transport in consumer layers. Add modules only for concrete requirements.
