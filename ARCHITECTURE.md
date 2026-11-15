@@ -91,9 +91,15 @@ The [`rail_viewer` example](examples/rail_viewer.rs) records service before gene
 
 Playback reads fixed snapshots and never advances simulation. Only the vehicle marker is interpolated; status follows recorded ticks, and analysis stays fixed. IDs and `u64` values remain exact through string serialization and `BigInt` passenger totals. Partial traces and completed traces missing initial history remain viewable without analysis; other analysis errors prevent file writing. See [README](README.md#browser-viewer) for execution and the consumer's rustdoc for display contracts.
 
+## Desktop Consumer
+
+[`apps/desktop`](apps/desktop/README.md) is the Windows application entry point and a separate Cargo workspace. Its path dependency points to the core; GPUI Kit, platform configuration, Serde dependencies, and the desktop lockfile remain consumer-owned. It compiles the existing result adapter directly and validates an embedded Rail result before opening one window. Rendering reads that owned result without advancing service or recomputing metrics.
+
+The initial shell exposes no scenario commands, playback, or file writes. Those are subsequent application work, not new core capabilities. Closing the last window quits the process. The dedicated Windows workflow checks this package; existing root CI commands retain their core/example scope and do not traverse the desktop workspace. The prototype remains independent, with no application dependency on its source or WASM configuration.
+
 ## GPUI Kit Feasibility Consumer
 
-The isolated [`prototypes/gpui`](prototypes/gpui/README.md) consumer evaluates a pinned GPUI Kit desktop/web stack using `tests/fixtures/rail_service.json`. Both targets parse the same embedded result through the existing result adapter. Its playback cursor and wall-clock pacing remain consumer state; no `RailVehicle`, simulation clock, or simulation step is used. The appearance module maps Fluent 2 light/dark colors onto the Kit theme; changing appearance does not mutate playback. Root integration tests exercise the same playback module without GUI dependencies, while the isolated workspace tests palette contrast. The prototype has its own Cargo workspace, lockfile, and toolchain, and does not select the application's production UI stack.
+The isolated [`prototypes/gpui`](prototypes/gpui/README.md) consumer evaluates a pinned GPUI Kit desktop/web stack using `tests/fixtures/rail_service.json`. Both targets parse the same embedded result through the existing result adapter. Its playback cursor and wall-clock pacing remain consumer state; no `RailVehicle`, simulation clock, or simulation step is used. The appearance module maps Fluent 2 light/dark colors onto the Kit theme; changing appearance does not mutate playback. Root integration tests exercise the same playback module without GUI dependencies, while the isolated workspace tests palette contrast. The prototype has its own Cargo workspace, lockfile, and toolchain. The Windows application reuses the selected Kit version; browser and other-platform feasibility remain separate decisions.
 
 ## Planned Direction
 

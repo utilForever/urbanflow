@@ -137,6 +137,19 @@ The status panel follows the selected snapshot; the operational summary stays fi
 
 To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod.rs). Rendering and result serialization stay in consumer modules.
 
+### Windows Desktop Application
+
+The isolated [desktop package](apps/desktop/README.md) opens a native Windows window and validates the bundled Rail result through the existing consumer adapter. It uses pinned GPUI Kit dependencies in a separate Cargo workspace; root library checks remain independent of GUI dependencies. This initial shell displays the fixture's node and snapshot counts. Scenario commands and playback remain follow-up work.
+
+With the Windows MSVC tools, SDK, CMake, and stable Rust installed:
+
+```powershell
+cd apps/desktop
+cargo +stable run --locked --target x86_64-pc-windows-msvc
+```
+
+See the package README for setup, package-scoped checks, Windows validation, and limitations. Its dedicated Windows CI builds and tests the package separately from the core.
+
 ### GPUI Kit Feasibility Prototype
 
 The isolated [GPUI Kit trial](prototypes/gpui/README.md) replays the existing seven-snapshot Rail fixture on a pinned desktop/web UI stack. It includes nodes, a vehicle marker, play/pause, snapshot seeking, keyboard controls, and selected operational analysis values. The Fluent 2-style interface supports light/dark switching without resetting playback. Playback only reads recorded state. GUI dependencies stay in the prototype's separate Cargo workspace; `cargo test --test gpui_playback` checks parity with the HTML viewer without building GPUI.
