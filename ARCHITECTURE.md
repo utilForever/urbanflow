@@ -101,7 +101,7 @@ The [shared output writer](examples/run_scenario/output.rs) stages a new file di
 
 Before rename, both consumers check each opened input's identity and the current targets of its chosen and resolved paths. Desktop Save protects the recorded and selected inputs. The name of a circular input link stays reserved. For a single new export, the writer creates only a sibling file unless it needs a separate filename check. Directory identities exclude reserved names in other folders. A live input in the same folder can supply the filename check. For an unresolved name, a temporary directory lets the filesystem compare spellings without occupying the destination.
 
-Closing the last window quits the process. An active save keeps its window open. The dedicated Windows workflow checks the desktop package. Root CI checks the core and examples, and the GPUI prototype has its own workspace.
+Closing the last window quits the process. Save defers a close request from the moment the command starts until the picker is cancelled or replacement succeeds. A save error clears the request and keeps the recording available. The dedicated Windows workflow checks the desktop package. Root CI checks the core and examples, and the GPUI prototype has its own workspace.
 
 ## GPUI Kit Feasibility Consumer
 

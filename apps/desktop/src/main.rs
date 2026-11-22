@@ -10,17 +10,17 @@ mod results;
 mod scenario;
 mod workflow;
 
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::{io, mem};
 
 use gpui_kit::component::{
     Disableable, Theme,
     button::{Button, ButtonVariants},
 };
 use gpui_kit::{
-    App, AsyncApp, Bounds, Context, Entity, PathPromptOptions, Role, Window, WindowBounds,
-    WindowOptions, div, prelude::*, px, size,
+    AnyWindowHandle, App, AsyncApp, Bounds, Context, Entity, PathPromptOptions, Role, Window,
+    WindowBounds, WindowOptions, div, prelude::*, px, size,
 };
 use workflow::{OpenedScenario, Recording};
 
@@ -37,7 +37,9 @@ struct Desktop {
 enum Activity {
     Idle,
     Working,
-    Saving,
+    Saving {
+        close_requested: Option<AnyWindowHandle>,
+    },
 }
 
 enum Change {
@@ -76,20 +78,35 @@ impl Desktop {
         cx.spawn(async move |view, cx| {
             let outcome = operation(cx).await;
 
-            let _ = view.update(cx, |this, cx| {
-                this.finish(outcome);
+            if let Ok(Some(window)) = view.update(cx, |this, cx| {
+                let close = this.finish(outcome);
                 cx.notify();
-            });
+                close
+            }) {
+                let _ = window.update(cx, |_, window, _| window.remove_window());
+            }
         })
         .detach();
+    }
+
+    fn should_close(&mut self, window: AnyWindowHandle, cx: &mut Context<Self>) -> bool {
+        if let Activity::Saving { close_requested } = &mut self.activity {
+            *close_requested = Some(window);
+            self.status = "Closing after you cancel or the result is saved…".to_owned();
+
+            cx.notify();
+            return false;
+        }
+
+        true
     }
 
     fn attach(self, window: &mut Window, cx: &mut App) -> Entity<Self> {
         let view = cx.new(|_| self);
         let weak = view.downgrade();
 
-        window.on_window_should_close(cx, move |_, cx| {
-            weak.update(cx, |this, _| !matches!(this.activity, Activity::Saving))
+        window.on_window_should_close(cx, move |window, cx| {
+            weak.update(cx, |this, cx| this.should_close(window.window_handle(), cx))
                 .unwrap_or(true)
         });
 
@@ -98,8 +115,12 @@ impl Desktop {
         view
     }
 
-    fn finish(&mut self, outcome: gpui_kit::Result<Change>) {
-        self.activity = Activity::Idle;
+    fn finish(&mut self, outcome: gpui_kit::Result<Change>) -> Option<AnyWindowHandle> {
+        let close = match mem::replace(&mut self.activity, Activity::Idle) {
+            Activity::Saving { close_requested } if outcome.is_ok() => close_requested,
+            _ => None,
+        };
+
         self.status = match outcome {
             Ok(Change::Opened(scenario)) => {
                 self.scenario = Some(scenario);
@@ -113,6 +134,8 @@ impl Desktop {
             Ok(Change::Cancelled) => String::new(),
             Err(error) => format!("Error: {error}"),
         };
+
+        close
     }
 
     fn open(&mut self, cx: &mut Context<Self>) {
@@ -164,21 +187,28 @@ impl Desktop {
         };
         let selected = selected.source.clone();
 
-        self.perform(Activity::Saving, "Saving result…", cx, async move |cx| {
-            let directory = recording.source.path.parent().unwrap_or(Path::new("."));
-            let path = cx
-                .update(|cx| cx.prompt_for_new_path(directory, Some("result.json")))
-                .await??;
-            let Some(path) = path else {
-                return Ok(Change::Cancelled);
-            };
+        self.perform(
+            Activity::Saving {
+                close_requested: None,
+            },
+            "Saving result…",
+            cx,
+            async move |cx| {
+                let directory = recording.source.path.parent().unwrap_or(Path::new("."));
+                let path = cx
+                    .update(|cx| cx.prompt_for_new_path(directory, Some("result.json")))
+                    .await??;
+                let Some(path) = path else {
+                    return Ok(Change::Cancelled);
+                };
 
-            cx.background_spawn(async move {
-                recording.save(&path, &selected).map_err(io::Error::other)?;
-                Ok(Change::Saved(path))
-            })
-            .await
-        });
+                cx.background_spawn(async move {
+                    recording.save(&path, &selected).map_err(io::Error::other)?;
+                    Ok(Change::Saved(path))
+                })
+                .await
+            },
+        );
     }
 
     fn displayed_result(&self) -> (&results::RailResult, String) {

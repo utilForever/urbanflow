@@ -793,3 +793,98 @@ fn opened_scenario_allows_exclusive_edits_and_keeps_the_recorded_input() {
     );
     assert_eq!(fs::read_to_string(moved).unwrap(), "edited");
 }
+
+fn window_with_recording(
+    app: &mut gpui::TestAppContext,
+    input: &Path,
+) -> (AnyWindowHandle, Entity<Desktop>) {
+    fs::write(input, DEMO_SCENARIO).unwrap();
+
+    let scenario = Arc::new(OpenedScenario::open(input).unwrap());
+
+    let mut desktop = Desktop::new().unwrap();
+    desktop.recording = Some(Arc::new(scenario.run().unwrap()));
+    desktop.scenario = Some(scenario);
+
+    app.skip_drawing();
+    app.update(|cx| {
+        gpui_kit::init(cx);
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            desktop.attach(window, cx)
+        })
+        .unwrap()
+    })
+}
+
+#[test]
+fn close_waits_from_the_save_picker_through_replacement_and_allows_retry() {
+    let directory = Directory::new("close");
+    let input = directory.0.join("scenario.json");
+    let retry = directory.0.join("retry.json");
+    let saved = directory.0.join("result.json");
+    let mut app = gpui::TestAppContext::single();
+    let (window, view) = window_with_recording(&mut app, &input);
+    let mut events = gpui::VisualTestContext::from_window(window, &app);
+
+    for (destination, request_close) in [(&input, true), (&retry, false), (&saved, true)] {
+        view.update(&mut app, Desktop::save);
+        app.run_until_parked();
+
+        assert!(app.did_prompt_for_new_path());
+
+        app.simulate_new_path_selection(|_| Some(destination.clone()));
+
+        if request_close {
+            assert!(
+                !events.simulate_close(),
+                "close arrived before the picker response was dispatched"
+            );
+        }
+
+        app.run_until_parked();
+
+        if destination == &input {
+            assert!(app.read(|cx| cx.windows().contains(&window)));
+            assert!(app.read(|cx| view.read(cx).status.contains("distinct")));
+            assert_eq!(fs::read_to_string(&input).unwrap(), DEMO_SCENARIO);
+        } else if !request_close {
+            assert!(app.read(|cx| cx.windows().contains(&window)));
+            assert!(results::load(&retry).unwrap().trace.completed);
+        }
+    }
+
+    assert!(app.read(|cx| cx.windows().is_empty()));
+    assert!(results::load(saved).unwrap().trace.completed);
+
+    app.quit();
+}
+
+#[test]
+fn cancelling_the_save_picker_honors_only_a_requested_close() {
+    let directory = Directory::new("cancel-close");
+    let input = directory.0.join("scenario.json");
+    let mut app = gpui::TestAppContext::single();
+    let (window, view) = window_with_recording(&mut app, &input);
+    let mut events = gpui::VisualTestContext::from_window(window, &app);
+
+    for request_close in [false, true] {
+        view.update(&mut app, Desktop::save);
+
+        if request_close {
+            assert!(
+                !events.simulate_close(),
+                "close must wait even before the picker opens"
+            );
+        }
+
+        app.run_until_parked();
+        app.simulate_new_path_selection(|_| None);
+        app.run_until_parked();
+
+        assert_eq!(app.read(|cx| cx.windows().is_empty()), request_close);
+    }
+
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+
+    app.quit();
+}

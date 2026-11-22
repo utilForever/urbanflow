@@ -10,7 +10,7 @@ The Windows app opens a Rail scenario, runs it up to its tick limit, and saves v
 
 Save protects both the selected scenario and the recording's source. For each input, the app checks the selected name, the path it resolved to at open time, and the files both paths currently reach. Their names stay reserved if either file moves or a symbolic link loses its target. The check follows the directory's case and Unicode naming rules and protects hard links. Saving through a symbolic link updates its target. If the target is missing or the link changes targets during Save, the app reports the chosen path and preserves the link. You can still export the recording elsewhere if the input folder disappears or an input link becomes circular.
 
-A folder that permits file creation and renaming can accept a new result. If an input name in that folder no longer resolves, the app may also need permission to create a temporary subdirectory to check for equivalent spellings. The window stays open while a save is active.
+A folder that permits file creation and renaming can accept a new result. If an input name in that folder no longer resolves, the app may also need permission to create a temporary subdirectory to check for equivalent spellings. If you request a window close during Save, the window closes when you cancel the picker or the write succeeds. A save error keeps the recording and window available for retry.
 
 A zero tick limit saves just the initial snapshot. A short run saves all recorded snapshots with `completed: false` and `analysis: null`. Env files require an action policy and are rejected. The window displays validation, execution, encoding, and file errors. A failed operation or cancelled picker keeps the last successful run available to save. Each snapshot is encoded as it is recorded. The run stops once the output exceeds 16 MiB, even if many ticks remain.
 
@@ -52,7 +52,7 @@ cargo +stable test --locked --target x86_64-pc-windows-msvc
 cargo +stable build --locked --target x86_64-pc-windows-msvc
 ```
 
-The [desktop tests](src/tests.rs) cover the startup preview, error recovery, exclusive Windows edits, renamed inputs, dangling links, missing input folders, and permission-preserving replacement of a write-only result. The GPUI test dispatcher delivers a foreground event during a bounded run. The [Windows workflow](../../.github/workflows/desktop.yml) runs the desktop package checks with stable Rust.
+The [desktop tests](src/tests.rs) cover the startup preview, error recovery, exclusive Windows edits, renamed inputs, dangling links, missing input folders, and permission-preserving replacement of a write-only result. The GPUI test dispatcher delivers a foreground event during a bounded run and requests a window close before a save dialog's response is processed. It checks cancellation, a successful write, and retry after failure. The [Windows workflow](../../.github/workflows/desktop.yml) runs the desktop package checks with stable Rust.
 
 To check native interaction, open the demo, run it, and save it through the two file pickers. Repeat with a copy that sets `max_ticks` to `"3"` and check for **Partial at tick 3** and four snapshots. Try opening an invalid file and saving the still-displayed result under another name. For a longer bounded run, set `vehicle.travel_ticks_per_edge` to `"30000"` and `max_ticks` to `"25000"` in the copy, reopen it, and resize the window during execution. The window should repaint and then report **Partial at tick 25000**.
 
