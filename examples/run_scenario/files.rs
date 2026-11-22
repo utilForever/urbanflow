@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use same_file::Handle;
 
-use super::scenario;
+use super::{output::StagedOutput, scenario};
 
 pub(crate) struct ScenarioFile {
     pub(crate) path: PathBuf,
@@ -149,6 +149,52 @@ fn inspect_output(
     }
 
     Ok((resolved, existing))
+}
+
+/// Rechecks the chosen destination, opened inputs, and reserved names before publication.
+pub(crate) fn check_destination(
+    staged: &mut StagedOutput,
+    chosen: &Path,
+    destination: &Path,
+    inputs: &[&ScenarioFile],
+) -> Result<(), String> {
+    let (current, existing) = inspect_output(chosen, inputs)?;
+
+    if current != destination {
+        return Err(format!(
+            "{}: output target changed during saving",
+            chosen.display()
+        ));
+    }
+
+    let parent = destination.parent().unwrap();
+    let parent_id = file_id(parent)?
+        .ok_or_else(|| format!("{}: output directory is missing", parent.display()))?;
+
+    for input in inputs {
+        for name in [&input.path, &input.resolved_path] {
+            let input_parent = file_id(name.parent().unwrap());
+
+            if matches!(&input_parent, Ok(id) if id.as_ref() != Some(&parent_id)) {
+                continue;
+            }
+
+            // A live input can serve as the name probe if it stays in place across the lookup.
+            if existing.is_none()
+                && let Ok(Some(before)) = file_id(name)
+                && file_id(destination)?.is_none()
+                && file_id(name).is_ok_and(|after| after == Some(before))
+            {
+                continue;
+            }
+
+            if staged.has_filename(destination, name)? && input_parent?.is_some() {
+                return Err(distinct(destination));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) fn same_file(left: &Path, right: &Path) -> Result<bool, String> {

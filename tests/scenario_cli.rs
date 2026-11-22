@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 use runner::rail_viewer::{self, results};
-use runner::{output, scenario};
+use runner::{files, output, scenario};
 
 const RAIL: &str = include_str!("fixtures/scenarios/rail-demo.json");
 
@@ -696,6 +696,41 @@ fn a_link_appearing_after_staging_is_preserved() {
     );
     assert_eq!(fs::read_link(result).unwrap(), missing);
     assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 2);
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn retargeting_a_chosen_link_keeps_both_files_intact() {
+    let directory = RunDirectory::new("retarget-output");
+    let (source, _) = files::ScenarioFile::open(&directory.0.join("scenario.json")).unwrap();
+    let link = directory.0.join("latest.json");
+    let first = directory.0.join("first.json");
+    let next = directory.0.join("next.json");
+
+    fs::write(&first, "first").unwrap();
+    fs::write(&next, "next").unwrap();
+
+    if !create_output_link(&first, &link) {
+        return;
+    }
+
+    let inputs = [&source];
+    let destination = files::output_path(&link, &inputs).unwrap();
+    let staged = output::StagedOutput::new(&destination, "result", None).unwrap();
+
+    fs::remove_file(&link).unwrap();
+
+    assert!(create_output_link(&next, &link));
+
+    let error = staged
+        .replace(&destination, |staged| {
+            files::check_destination(staged, &link, &destination, &inputs)
+        })
+        .unwrap_err();
+
+    assert!(error.contains("target changed"), "{error}");
+    assert_eq!(fs::read_to_string(first).unwrap(), "first");
+    assert_eq!(fs::read_to_string(link).unwrap(), "next");
 }
 
 #[rstest]

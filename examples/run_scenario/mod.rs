@@ -10,7 +10,7 @@ pub mod scenario;
 use std::ffi::OsString;
 use std::path::Path;
 
-use files::{ScenarioFile, output_path, same_file};
+use files::{ScenarioFile, check_destination, output_path, same_file};
 use output::StagedOutput;
 
 const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> <result.json> [viewer.html]\nRuns kind=rail with the file's max_ticks; Env execution is unsupported.\nUse distinct input/output paths and existing output directories.";
@@ -81,13 +81,20 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
         })
         .transpose()?;
 
-    let staged_result = StagedOutput::new(&result, &json, html.as_deref())?;
+    let mut staged_result = StagedOutput::new(&result, &json, html.as_deref())?;
 
     if let Some((path, contents)) = html.as_deref().zip(rendered.as_deref()) {
-        StagedOutput::new(path, contents, Some(&result))?.replace(path, |_| check_outputs())?;
+        StagedOutput::new(path, contents, Some(&result))?.replace(path, |staged_html| {
+            check_outputs()?;
+            check_destination(&mut staged_result, result_arg, &result, &inputs)?;
+            check_destination(staged_html, Path::new(&args[2]), path, &inputs)
+        })?;
     }
 
-    staged_result.replace(&result, |_| check_outputs())?;
+    staged_result.replace(&result, |staged| {
+        check_outputs()?;
+        check_destination(staged, result_arg, &result, &inputs)
+    })?;
 
     Ok(format!(
         "{} at tick {}; {} snapshots; result: {}{}",
