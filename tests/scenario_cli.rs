@@ -1,3 +1,5 @@
+#[path = "../apps/desktop/src/workflow.rs"]
+mod desktop;
 #[path = "../examples/run_scenario/mod.rs"]
 pub mod runner;
 
@@ -84,7 +86,7 @@ fn repeated_runs_match_demo_trace_analysis_json_and_html() {
 #[case::partial(3, false)]
 #[case::exact_completion(18, true)]
 #[case::full_width_limit(u64::MAX, true)]
-fn file_limit_controls_recording(#[case] limit: u64, #[case] completed: bool) {
+fn cli_and_desktop_save_the_same_bounded_recording(#[case] limit: u64, #[case] completed: bool) {
     let directory = RunDirectory::new(&format!("limit-{limit}"));
 
     fs::write(
@@ -116,6 +118,21 @@ fn file_limit_controls_recording(#[case] limit: u64, #[case] completed: bool) {
         .trim();
 
     assert_eq!(embedded, json);
+
+    let input = directory.0.join("scenario.json");
+    let scenario = desktop::OpenedScenario::open(&input).unwrap();
+    let desktop_output = directory.0.join("desktop.json");
+
+    fs::write(&input, "edited after opening").unwrap();
+
+    for _ in 0..2 {
+        let recording = scenario.run().unwrap();
+        recording.save(&desktop_output, &scenario.source).unwrap();
+
+        assert_eq!(fs::read_to_string(&desktop_output).unwrap(), json);
+        assert_eq!(recording.data.trace, saved.trace);
+        assert_eq!(recording.data.analysis, saved.analysis);
+    }
 
     if !completed {
         assert!(message.starts_with("Partial"));
@@ -666,6 +683,17 @@ fn unresolved_output_links_preserve_both_outputs(#[case] link: usize, #[case] ot
         error.contains("symbolic link") && error.contains(chosen.to_str().unwrap()),
         "{error}"
     );
+
+    if link == 1 {
+        let opened = desktop::OpenedScenario::open(Path::new(&args[0])).unwrap();
+        let error = opened
+            .run()
+            .unwrap()
+            .save(chosen, &opened.source)
+            .unwrap_err();
+
+        assert!(error.contains("symbolic link"), "{error}");
+    }
 
     assert_eq!(fs::read_link(chosen).unwrap(), target_name);
     assert_eq!(

@@ -1,6 +1,18 @@
+#[cfg(test)]
+#[path = "../../../examples/run_scenario/files.rs"]
+mod files;
+#[cfg(test)]
+#[path = "../../../examples/run_scenario/output.rs"]
+mod output;
 #[allow(dead_code)]
 #[path = "../../../examples/results/mod.rs"]
 mod results;
+#[allow(dead_code)]
+#[cfg(test)]
+#[path = "../../../examples/scenario/mod.rs"]
+mod scenario;
+#[cfg(test)]
+mod workflow;
 
 use gpui_kit::component::Theme;
 use gpui_kit::{
@@ -71,20 +83,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn startup_result_uses_the_existing_adapter_and_core_analysis() {
-        let result = results::parse("rail_service.json", DEMO).unwrap();
-
-        assert_eq!(result.world.nodes.len(), 3);
-        assert_eq!(result.trace.snapshots.len(), 7);
-        assert_eq!(result.trace.snapshots.last().unwrap().tick, 6);
-        assert!(result.trace.completed);
-        assert_eq!(
-            result.analysis.unwrap(),
-            urbanflow::analysis::analyze(&result.trace).unwrap()
-        );
-    }
-}
+mod tests;

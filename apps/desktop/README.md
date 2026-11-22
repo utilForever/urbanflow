@@ -42,7 +42,7 @@ cargo +stable test --locked --target x86_64-pc-windows-msvc
 cargo +stable build --locked --target x86_64-pc-windows-msvc
 ```
 
-The focused startup test validates the embedded fixture and checks that its analysis agrees with `urbanflow::analysis::analyze`. The [Windows workflow](../../.github/workflows/desktop.yml) runs these package checks with stable Rust and caches only this workspace's artifacts. CI compilation does not prove that a window painted: manually launch on Windows, inspect the initial text, resize/minimize/restore the window, and close it to confirm that the process exits.
+The focused startup test validates the embedded fixture and checks that its analysis agrees with `urbanflow::analysis::analyze`. The [Windows workflow](../../.github/workflows/desktop.yml) runs these package checks with stable Rust and caches only this workspace's artifacts. CI compilation does not prove that a window painted: manually launch on Windows, inspect the initial text, resize/minimize/restore the window, and close it to confirm that the process exits. The workflow tests exercise retained Rail inputs and result exports before integration with the window.
 
 Root commands in [AGENTS.md](../../AGENTS.md) retain their existing scope. `cargo check --all`, `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test --all` from the repository root do not build GPUI. Existing root Rust, browser, unused-dependency, coverage, and audit workflows continue to check the core/examples; they do not cover this separate desktop lockfile. To audit desktop dependencies separately, run `cargo audit --file apps/desktop/Cargo.lock` from the root with cargo-audit installed. Prototype checks remain in `prototypes/gpui`.
 

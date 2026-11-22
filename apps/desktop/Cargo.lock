@@ -6664,10 +6664,13 @@ name = "urbanflow-desktop"
 version = "0.1.0"
 dependencies = [
  "gpui-kit",
+ "libc",
+ "same-file",
  "serde",
  "serde_json",
  "serde_path_to_error",
  "urbanflow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
