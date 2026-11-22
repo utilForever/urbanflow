@@ -40,5 +40,7 @@ jobs:
         run: cargo clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
       - name: Test
         run: cargo test --locked --target x86_64-pc-windows-msvc
+      - name: Test CLI and desktop scenario results
+        run: cargo test --locked --manifest-path ../../Cargo.toml --target x86_64-pc-windows-msvc --test scenario_cli
       - name: Build application
         run: cargo build --locked --target x86_64-pc-windows-msvc

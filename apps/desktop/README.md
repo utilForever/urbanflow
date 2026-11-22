@@ -49,10 +49,11 @@ cargo +stable check --locked --all-targets --target x86_64-pc-windows-msvc
 cargo +stable fmt --all -- --check
 cargo +stable clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
 cargo +stable test --locked --target x86_64-pc-windows-msvc
+cargo +stable test --locked --manifest-path ../../Cargo.toml --target x86_64-pc-windows-msvc --test scenario_cli
 cargo +stable build --locked --target x86_64-pc-windows-msvc
 ```
 
-The [desktop tests](src/tests.rs) cover the startup preview, error recovery, exclusive Windows edits, renamed inputs, dangling links, missing input folders, and permission-preserving replacement of a write-only result. The GPUI test dispatcher delivers a foreground event during a bounded run and requests a window close before a save dialog's response is processed. It checks cancellation, a successful write, and retry after failure. The [Windows workflow](../../.github/workflows/desktop.yml) runs the desktop package checks with stable Rust.
+The [desktop tests](src/tests.rs) cover the startup preview, error recovery, exclusive Windows edits, renamed inputs, dangling links, missing input folders, and permission-preserving replacement of a write-only result. The GPUI test dispatcher delivers a foreground event during a bounded run and requests a window close before a save dialog's response is processed. It checks cancellation, a successful write, and retry after failure. The [Windows workflow](../../.github/workflows/desktop.yml) also runs the root `scenario_cli` integration test with stable Rust. It checks that invalid paths preserve saved results and compares desktop and CLI exports byte for byte for zero, short, exact-completion, and full-width tick limits.
 
 To check native interaction, open the demo, run it, and save it through the two file pickers. Repeat with a copy that sets `max_ticks` to `"3"` and check for **Partial at tick 3** and four snapshots. Try opening an invalid file and saving the still-displayed result under another name. For a longer bounded run, set `vehicle.travel_ticks_per_edge` to `"30000"` and `max_ticks` to `"25000"` in the copy, reopen it, and resize the window during execution. The window should repaint and then report **Partial at tick 25000**.
 
