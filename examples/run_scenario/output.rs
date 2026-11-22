@@ -30,8 +30,12 @@ fn destination_exists(path: &Path) -> io::Result<bool> {
 /// A complete replacement staged on the destination filesystem until it is installed or dropped.
 pub(crate) struct StagedOutput {
     file: File,
-    probe: NameProbe,
-    replacing: bool,
+    paths: StagingPaths,
+}
+
+struct StagingPaths {
+    name_probe: Option<NameProbe>,
+    new_file: Option<PathBuf>,
 }
 
 fn temporary_path(destination: &Path, extension: &str) -> PathBuf {
@@ -90,6 +94,73 @@ impl Drop for NameProbe {
     }
 }
 
+impl StagingPaths {
+    fn data_path(&self) -> &Path {
+        self.new_file
+            .as_deref()
+            .unwrap_or_else(|| &self.name_probe.as_ref().unwrap().0)
+    }
+
+    /// Returns None if a temporary name is already taken or would alias an output.
+    fn create_file(
+        &mut self,
+        destination: &Path,
+        other_output: Option<&Path>,
+        existing: bool,
+    ) -> Result<Option<File>, String> {
+        let error = |e| staging_error(destination, e);
+
+        let mut options = File::options();
+        options.write(true).create_new(true);
+
+        #[cfg(windows)]
+        std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, 0);
+
+        if existing {
+            let probe = &self.name_probe.as_ref().unwrap().0;
+
+            #[cfg(target_vendor = "apple")]
+            access::private_directory(probe.parent().unwrap()).map_err(error)?;
+
+            return options.open(probe).map(Some).map_err(error);
+        }
+
+        // A direct sibling inherits even ACL entries limited to immediate children.
+        let extension = if destination
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("new"))
+        {
+            "tmp"
+        } else {
+            "new"
+        };
+        let sibling = temporary_path(destination, extension);
+
+        if let Some(probe) = &self.name_probe {
+            let marker = probe.0.with_file_name(sibling.file_name().unwrap());
+
+            drop(options.open(&marker).map_err(error)?);
+
+            for output in std::iter::once(destination).chain(other_output) {
+                if probe.contains(output)? {
+                    return Ok(None);
+                }
+            }
+
+            fs::rename(marker, &probe.0).map_err(error)?;
+        }
+
+        let file = match options.open(&sibling) {
+            Ok(file) => file,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Ok(None),
+            Err(e) => return Err(error(e)),
+        };
+
+        self.new_file = Some(sibling);
+        Ok(Some(file))
+    }
+}
+
 impl StagedOutput {
     pub(crate) fn new(
         destination: &Path,
@@ -106,24 +177,20 @@ impl StagedOutput {
 
         loop {
             let existing = destination_exists(destination).map_err(error)?;
-            let probe = NameProbe::new(destination, other_output)?;
-            let mut options = File::options();
-            options.write(true).create_new(true);
-            #[cfg(windows)]
-            std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, 0);
-            #[cfg(target_vendor = "apple")]
-            if existing {
-                access::private_directory(probe.0.parent().unwrap()).map_err(error)?;
-            }
-            let file = options.open(&probe.0).map_err(error)?;
-            let mut staged = Self {
-                file,
-                probe,
-                replacing: existing,
+            let mut paths = StagingPaths {
+                name_probe: (existing || same_directory_output.is_some())
+                    .then(|| NameProbe::new(destination, other_output))
+                    .transpose()?,
+                new_file: None,
             };
+            let Some(file) = paths.create_file(destination, same_directory_output, existing)?
+            else {
+                continue;
+            };
+            let mut staged = Self { file, paths };
 
             if let Some(other) = same_directory_output
-                && staged.probe.contains(other)?
+                && staged.has_filename(destination, other)?
             {
                 return Err("input, result, and HTML paths must be distinct".to_owned());
             }
@@ -145,9 +212,30 @@ impl StagedOutput {
         }
     }
 
+    /// Asks the destination filesystem whether this spelling names the staged file.
+    pub(crate) fn has_filename(
+        &mut self,
+        destination: &Path,
+        other: &Path,
+    ) -> Result<bool, String> {
+        if destination.file_name() == other.file_name() {
+            return Ok(true);
+        }
+
+        if let Some(probe) = &self.paths.name_probe {
+            return probe.contains(other);
+        }
+
+        let probe = NameProbe::new(destination, Some(other))?;
+
+        File::create_new(&probe.0).map_err(|e| staging_error(destination, e))?;
+
+        self.paths.name_probe.insert(probe).contains(other)
+    }
+
     fn preserve_access(&self, destination: &Path) -> Result<(), String> {
         #[cfg(any(unix, windows))]
-        access::preserve(destination, &self.probe.0, &self.file)
+        access::preserve(destination, self.paths.data_path(), &self.file)
             .map_err(|e| format!("{}: access permissions: {e}", destination.display()))?;
         Ok(())
     }
@@ -159,7 +247,7 @@ impl StagedOutput {
     ) -> Result<(), String> {
         // A destination can appear or have its permissions tightened during staging.
         if destination_exists(destination).map_err(|e| format!("{}: {e}", destination.display()))?
-            || self.replacing
+            || self.paths.new_file.is_none()
         {
             self.preserve_access(destination)?;
         }
@@ -167,9 +255,18 @@ impl StagedOutput {
         before_rename(&mut self)?;
         drop(self.file);
 
-        fs::rename(&self.probe.0, destination)
+        fs::rename(self.paths.data_path(), destination)
             .map_err(|e| format!("{}: replacement: {e}", destination.display()))?;
 
+        self.paths.new_file = None;
         Ok(())
+    }
+}
+
+impl Drop for StagingPaths {
+    fn drop(&mut self) {
+        if let Some(path) = &self.new_file {
+            let _ = fs::remove_file(path);
+        }
     }
 }

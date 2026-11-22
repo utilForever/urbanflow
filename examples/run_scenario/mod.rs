@@ -24,8 +24,11 @@ const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> 
 /// Each path must end in a filename. Trailing separators and final `.` or `..`
 /// components are rejected before recording or writing.
 ///
-/// Outputs are staged in sibling directories and compared using native filename lookup.
-/// Replacements retain ownership and access rules. An existing EFS-encrypted output is rejected.
+/// New outputs inherit the chosen directory's file permissions. One new JSON
+/// output needs only a temporary sibling file. Replacements use sibling directories
+/// and retain the existing owner, group, and access rules. Native filename lookup
+/// rejects equivalent names even when both outputs are absent. A permission-copy
+/// failure or an existing Windows EFS-encrypted file stops that replacement.
 /// Files are then renamed: HTML first, JSON last. Each replacement is atomic,
 /// but the pair is not a filesystem transaction: a final JSON rename failure
 /// can leave the new HTML installed.

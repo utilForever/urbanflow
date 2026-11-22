@@ -147,6 +147,27 @@ fn html_is_optional() {
     assert!(!directory.0.join("viewer.html").exists());
 }
 
+#[test]
+fn staging_one_new_file_needs_only_a_sibling_and_cleans_up_on_failure() {
+    let directory = RunDirectory::new("single-sibling");
+    let result = directory.0.join("result.json");
+    let staged = output::StagedOutput::new(&result, "new result", None).unwrap();
+
+    assert!(!result.exists());
+
+    for entry in fs::read_dir(&directory.0).unwrap() {
+        assert!(entry.unwrap().file_type().unwrap().is_file());
+    }
+
+    assert!(
+        staged
+            .replace(&result, |_| Err("cancelled".into()))
+            .is_err()
+    );
+    assert!(!result.exists());
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+}
+
 #[cfg(unix)]
 #[test]
 fn an_existing_results_permissions_apply_during_staging_and_after_replacement() {
