@@ -147,6 +147,62 @@ fn html_is_optional() {
     assert!(!directory.0.join("viewer.html").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn an_existing_results_permissions_apply_during_staging_and_after_replacement() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = RunDirectory::new("private-result");
+    let result = directory.0.join("result.json");
+
+    fs::write(&result, "previous result").unwrap();
+    fs::set_permissions(&result, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let staged = output::StagedOutput::new(&result, "new result", None).unwrap();
+    let scratch = fs::read_dir(&directory.0)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| path.is_dir())
+        .unwrap();
+    let mode = |path: &std::path::Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+    assert_eq!(mode(&scratch.join("result.json")), 0o600);
+    assert_eq!(fs::read_to_string(&result).unwrap(), "previous result");
+
+    fs::set_permissions(&result, fs::Permissions::from_mode(0o400)).unwrap();
+    staged.replace(&result, |_| Ok(())).unwrap();
+
+    assert_eq!(mode(&result), 0o400);
+    assert_eq!(fs::read_to_string(result).unwrap(), "new result");
+}
+
+#[cfg(target_vendor = "apple")]
+#[test]
+fn replacing_a_result_keeps_its_macos_read_denial() {
+    use std::process::Command;
+
+    let directory = RunDirectory::new("result-acl");
+    let result = directory.0.join("result.json");
+
+    fs::write(&result, "previous result").unwrap();
+
+    assert!(
+        Command::new("chmod")
+            .args(["+a", "everyone deny read"])
+            .arg(&result)
+            .status()
+            .unwrap()
+            .success()
+    );
+
+    runner::run(directory.args()).unwrap();
+
+    let acl = Command::new("ls").arg("-le").arg(result).output().unwrap();
+
+    assert!(acl.status.success());
+    assert!(String::from_utf8(acl.stdout).unwrap().contains("deny read"));
+}
+
 #[test]
 fn a_removed_replacement_destination_can_be_retried_as_a_new_file() {
     let directory = RunDirectory::new("removed-result");
@@ -166,6 +222,69 @@ fn a_removed_replacement_destination_can_be_retried_as_a_new_file() {
 
     assert!(results::load(result).unwrap().trace.completed);
     directory.assert_no_staging_files();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn replacing_a_result_keeps_its_linux_named_user_acl() {
+    use std::os::fd::AsRawFd;
+
+    let directory = RunDirectory::new("result-acl");
+    let result = directory.0.join("result.json");
+    let original = fs::File::create(&result).unwrap();
+    // Linux POSIX ACL version 2: owner, named user 65534, group, mask, other.
+    let mut acl = 2u32.to_le_bytes().to_vec();
+
+    for (tag, permissions, id) in [
+        (1u16, 2u16, u32::MAX),
+        (2, 4, 65534),
+        (4, 0, u32::MAX),
+        (16, 4, u32::MAX),
+        (32, 0, u32::MAX),
+    ] {
+        acl.extend(tag.to_le_bytes());
+        acl.extend(permissions.to_le_bytes());
+        acl.extend(id.to_le_bytes());
+    }
+
+    let name = c"system.posix_acl_access".as_ptr();
+
+    if unsafe {
+        libc::fsetxattr(
+            original.as_raw_fd(),
+            name,
+            acl.as_ptr().cast(),
+            acl.len(),
+            0,
+        )
+    } != 0
+    {
+        let error = std::io::Error::last_os_error();
+
+        if error.raw_os_error() == Some(libc::EOPNOTSUPP) {
+            eprintln!("Skipping named-user ACL check on a filesystem without POSIX ACL support");
+            return;
+        }
+
+        panic!("{error}");
+    }
+
+    drop(original);
+    runner::run(directory.args()).unwrap();
+
+    let saved = fs::File::options().write(true).open(result).unwrap();
+    let mut actual = vec![0u8; acl.len()];
+    let size = unsafe {
+        libc::fgetxattr(
+            saved.as_raw_fd(),
+            name,
+            actual.as_mut_ptr().cast(),
+            actual.len(),
+        )
+    };
+
+    assert_eq!(size, acl.len() as isize);
+    assert_eq!(actual, acl);
 }
 
 #[rstest]

@@ -7,6 +7,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::files::same_file;
 
+#[cfg(unix)]
+#[path = "output/unix.rs"]
+mod access;
+
 // Live output links have already been resolved. A link here must not be replaced.
 fn destination_exists(path: &Path) -> io::Result<bool> {
     match fs::symlink_metadata(path) {
@@ -104,6 +108,10 @@ impl StagedOutput {
             options.write(true).create_new(true);
             #[cfg(windows)]
             std::os::windows::fs::OpenOptionsExt::share_mode(&mut options, 0);
+            #[cfg(target_vendor = "apple")]
+            if existing {
+                access::private_directory(probe.0.parent().unwrap()).map_err(error)?;
+            }
             let file = options.open(&probe.0).map_err(error)?;
             let mut staged = Self {
                 file,
@@ -117,7 +125,10 @@ impl StagedOutput {
                 return Err("input, result, and HTML paths must be distinct".to_owned());
             }
 
-            if !existing && destination_exists(destination).map_err(error)? {
+            if existing {
+                staged.preserve_access(destination)?;
+            } else if destination_exists(destination).map_err(error)? {
+                // It appeared before writing. Restage with its existing access rules.
                 continue;
             }
 
@@ -131,18 +142,25 @@ impl StagedOutput {
         }
     }
 
+    fn preserve_access(&self, destination: &Path) -> Result<(), String> {
+        #[cfg(not(unix))]
+        fs::metadata(destination).map_err(|e| format!("{}: {e}", destination.display()))?;
+        #[cfg(unix)]
+        access::preserve(destination, &self.probe.0, &self.file)
+            .map_err(|e| format!("{}: access permissions: {e}", destination.display()))?;
+        Ok(())
+    }
+
     pub(crate) fn replace(
         mut self,
         destination: &Path,
         before_rename: impl FnOnce(&mut Self) -> Result<(), String>,
     ) -> Result<(), String> {
-        let exists = destination_exists(destination)
-            .map_err(|e| format!("{}: {e}", destination.display()))?;
-        if self.replacing && !exists {
-            return Err(format!(
-                "{}: replacement destination disappeared",
-                destination.display()
-            ));
+        // A destination can appear or have its permissions tightened during staging.
+        if destination_exists(destination).map_err(|e| format!("{}: {e}", destination.display()))?
+            || self.replacing
+        {
+            self.preserve_access(destination)?;
         }
 
         before_rename(&mut self)?;
