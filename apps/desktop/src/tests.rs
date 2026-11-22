@@ -1,5 +1,7 @@
 use super::*;
 use std::fs;
+#[cfg(any(windows, target_vendor = "apple"))]
+use std::io;
 use std::path::{Path, PathBuf};
 use workflow::OpenedScenario;
 
@@ -176,6 +178,258 @@ fn save_protects_replaced_and_retargeted_input_links() {
             .contains("distinct")
     );
     assert_eq!(fs::read_to_string(moved).unwrap(), DEMO_SCENARIO);
+}
+
+#[cfg(any(target_vendor = "apple", windows))]
+#[test]
+fn new_results_can_be_saved_without_permission_to_create_subdirectories() {
+    use std::process::Command;
+
+    let directory = Directory::new("files-only");
+    let outputs = directory.0.join("outputs");
+
+    fs::create_dir(&outputs).unwrap();
+
+    #[cfg(target_vendor = "apple")]
+    let status = Command::new("chmod")
+        .args(["+a", "everyone deny add_subdirectory"])
+        .arg(&outputs)
+        .status();
+    #[cfg(windows)]
+    let status = Command::new("icacls")
+        .arg(&outputs)
+        .args(["/deny", "*S-1-1-0:(AD)"])
+        .status();
+
+    assert!(status.unwrap().success());
+    assert_eq!(
+        fs::create_dir(outputs.join("subdir")).unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+
+    for (input, result) in [
+        (directory.0.join("scenario.json"), "scenario.json"),
+        (outputs.join("local.json"), "result.json"),
+    ] {
+        fs::write(&input, DEMO_SCENARIO).unwrap();
+
+        let opened = OpenedScenario::open(&input).unwrap();
+        let recording = opened.run().unwrap();
+        let result = outputs.join(result);
+
+        recording.save(&result, &opened.source).unwrap();
+
+        assert_eq!(results::load(result).unwrap().trace, recording.data.trace);
+    }
+
+    assert_eq!(fs::read_dir(outputs).unwrap().count(), 3);
+}
+
+#[cfg(any(target_vendor = "apple", windows))]
+#[test]
+fn new_results_inherit_the_same_acl_as_a_directly_created_file() {
+    use std::process::Command;
+
+    let directory = Directory::new("direct-child-acl");
+    let input = directory.0.join("scenario.json");
+    let result = directory.0.join("result.json");
+
+    fs::write(&input, DEMO_SCENARIO).unwrap();
+
+    let selection = OpenedScenario::open(&input).unwrap();
+    let recording = selection.run().unwrap();
+
+    #[cfg(target_vendor = "apple")]
+    let acl = || {
+        let output = Command::new("ls").arg("-le").arg(&result).output().unwrap();
+
+        assert!(output.status.success());
+
+        String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    #[cfg(windows)]
+    let acl = || {
+        let output = Command::new("icacls").arg(&result).output().unwrap();
+        assert!(output.status.success());
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
+    fs::write(&result, "before inheritance").unwrap();
+
+    let baseline = acl();
+
+    fs::remove_file(&result).unwrap();
+
+    #[cfg(target_vendor = "apple")]
+    let grant = Command::new("chmod")
+        .args(["+a", "group:staff allow read,file_inherit,limit_inherit"])
+        .arg(&directory.0)
+        .output()
+        .unwrap();
+    #[cfg(windows)]
+    let grant = Command::new("icacls")
+        .arg(&directory.0)
+        .args(["/grant", "*S-1-5-32-546:(OI)(NP)(IO)R"])
+        .output()
+        .unwrap();
+
+    assert!(
+        grant.status.success(),
+        "{}",
+        String::from_utf8_lossy(&grant.stderr)
+    );
+
+    fs::write(&result, "direct child").unwrap();
+
+    let expected = acl();
+
+    assert_ne!(
+        expected, baseline,
+        "the direct child must inherit the new grant"
+    );
+
+    fs::remove_file(&result).unwrap();
+    recording.save(&result, &selection.source).unwrap();
+
+    assert_eq!(acl(), expected);
+    assert_eq!(results::load(result).unwrap().trace, recording.data.trace);
+}
+
+#[cfg(windows)]
+#[test]
+fn encrypted_results_are_rejected_before_writing_and_before_replacement() {
+    use std::io::Write;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows_sys::Win32::Foundation::{
+        ERROR_EFS_DISABLED, ERROR_NO_EFS, ERROR_NO_USER_KEYS, ERROR_NOT_SUPPORTED,
+        ERROR_VOLUME_NOT_SUPPORT_EFS,
+    };
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_ENCRYPTED;
+
+    let directory = Directory::new("encrypted-result");
+    let result = directory.0.join("result.json");
+    let pending = output::StagedOutput::new(&result, "replacement", None).unwrap();
+    let mut protected = match fs::File::options()
+        .write(true)
+        .create_new(true)
+        .attributes(FILE_ATTRIBUTE_ENCRYPTED)
+        .open(&result)
+    {
+        Ok(file) => file,
+        Err(e)
+            if e.raw_os_error().is_some_and(|code| {
+                matches!(
+                    code as u32,
+                    ERROR_EFS_DISABLED
+                        | ERROR_NOT_SUPPORTED
+                        | ERROR_NO_EFS
+                        | ERROR_NO_USER_KEYS
+                        | ERROR_VOLUME_NOT_SUPPORT_EFS
+                )
+            }) =>
+        {
+            eprintln!("EFS unavailable for this test directory: {e}");
+            return;
+        }
+        Err(e) => panic!("creating the EFS test file: {e}"),
+    };
+
+    if protected.metadata().unwrap().file_attributes() & FILE_ATTRIBUTE_ENCRYPTED == 0 {
+        eprintln!("The test volume did not create an encrypted file");
+        return;
+    }
+
+    protected.write_all(b"previous result").unwrap();
+    drop(protected);
+
+    assert!(
+        output::StagedOutput::new(&result, "replacement", None)
+            .err()
+            .unwrap()
+            .contains("EFS")
+    );
+    assert!(
+        pending
+            .replace(&result, |_| Ok(()))
+            .unwrap_err()
+            .contains("EFS")
+    );
+    assert_eq!(fs::read(&result).unwrap(), b"previous result");
+    assert_ne!(
+        fs::metadata(&result).unwrap().file_attributes() & FILE_ATTRIBUTE_ENCRYPTED,
+        0
+    );
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn save_can_replace_a_result_without_reading_its_contents() {
+    let directory = Directory::new("write-only");
+    let input = directory.0.join("input.json");
+    let result = directory.0.join("result.json");
+
+    fs::write(&input, DEMO_SCENARIO).unwrap();
+    fs::write(&result, "old result").unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&result, fs::Permissions::from_mode(0o200)).unwrap();
+    }
+    #[cfg(windows)]
+    {
+        // Deny reading file data but retain metadata and replacement rights in our directory.
+        let acl = std::process::Command::new("icacls")
+            .arg(&result)
+            .args(["/deny", "*S-1-1-0:(RD)"])
+            .output()
+            .unwrap();
+        assert!(
+            acl.status.success(),
+            "{}",
+            String::from_utf8_lossy(&acl.stderr)
+        );
+        assert!(fs::File::open(&result).is_err());
+    }
+
+    let selection = OpenedScenario::open(&input).unwrap();
+    let recording = selection.run().unwrap();
+
+    recording.save(&result, &selection.source).unwrap();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        assert_eq!(
+            fs::metadata(&result).unwrap().permissions().mode() & 0o777,
+            0o200
+        );
+
+        fs::set_permissions(&result, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    #[cfg(windows)]
+    {
+        assert_eq!(
+            fs::File::open(&result).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+        assert!(
+            std::process::Command::new("icacls")
+                .arg(&result)
+                .args(["/remove:d", "*S-1-1-0"])
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    assert_eq!(results::load(result).unwrap().trace, recording.data.trace);
 }
 
 #[test]
