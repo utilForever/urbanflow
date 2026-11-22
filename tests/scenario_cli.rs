@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use rstest::rstest;
 use runner::rail_viewer::{self, results};
+use runner::scenario;
 
 const RAIL: &str = include_str!("fixtures/scenarios/rail-demo.json");
 
@@ -242,6 +243,53 @@ fn encoding_failure_after_recording_preserves_existing_outputs() {
     assert_eq!(directory.outputs(), before);
 
     directory.assert_no_staging_files();
+}
+
+#[test]
+fn recording_stops_at_the_first_frame_that_exceeds_the_result_limit() {
+    let mut input: serde_json::Value = serde_json::from_str(RAIL).unwrap();
+    input["demands"] = vec![input["demands"][0].clone(); 1200].into();
+    input["vehicle"]["travel_ticks_per_edge"] = "1000".into();
+    input["max_ticks"] = "300".into();
+
+    let file = std::path::Path::new("oversized.json");
+    let initial = scenario::parse(file, &input.to_string())
+        .unwrap()
+        .into_rail(file)
+        .unwrap();
+    let mut rail = initial.clone();
+    let error = results::record(
+        rail.world,
+        &mut rail.vehicle,
+        &mut rail.clock,
+        &mut rail.passengers,
+        rail.max_ticks,
+    )
+    .unwrap_err();
+
+    assert!(error.contains("16 MiB"), "{error}");
+
+    let rejected_tick = rail.clock.tick();
+
+    assert!((1..initial.max_ticks).contains(&rejected_tick));
+
+    let mut rail = initial;
+    let mut trace = rail
+        .vehicle
+        .record_trace(&mut rail.clock, &mut rail.passengers, rejected_tick)
+        .unwrap();
+    let rejected = trace.snapshots.pop().unwrap();
+
+    assert!(results::encode(&rail.world, &trace).is_ok());
+
+    trace.snapshots.push(rejected);
+
+    assert!(
+        results::encode(&rail.world, &trace)
+            .unwrap_err()
+            .detail
+            .contains("16 MiB")
+    );
 }
 
 #[test]

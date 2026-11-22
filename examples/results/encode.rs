@@ -1,52 +1,69 @@
 use std::fmt::Write;
 
 use urbanflow::analysis::OperationalAnalysis;
-use urbanflow::rail::{RailPosition, RailTrace};
+use urbanflow::rail::{RailPosition, RailSnapshot};
 use urbanflow::world::{EdgeKind, World};
 
-pub(super) fn payload(
-    world: &World,
-    trace: &RailTrace,
-    analysis: Option<&OperationalAnalysis>,
-) -> String {
-    let mut data = String::from("{\"version\":1,\"nodes\":[");
+pub(super) struct Encoder {
+    data: String,
+    completed_offset: usize,
+}
 
-    for (index, node) in world.nodes.iter().enumerate() {
-        if index > 0 {
-            data.push(',');
+fn check_size(bytes: usize) -> Result<(), String> {
+    super::check_size(bytes).map_err(|detail| format!("encoded {detail}"))
+}
+
+impl Encoder {
+    pub fn new(world: &World) -> Result<Self, String> {
+        let mut data = String::from("{\"version\":1,\"nodes\":[");
+
+        for (index, node) in world.nodes.iter().enumerate() {
+            if index > 0 {
+                data.push(',');
+            }
+
+            write!(data, "\"{}\"", node.id.0).unwrap();
+            check_size(data.len())?;
         }
 
-        write!(data, "\"{}\"", node.id.0).unwrap();
-    }
+        data.push_str("],\"edges\":[");
 
-    data.push_str("],\"edges\":[");
+        for (index, edge) in world.network.edges().iter().enumerate() {
+            if index > 0 {
+                data.push(',');
+            }
 
-    for (index, edge) in world.network.edges().iter().enumerate() {
-        if index > 0 {
-            data.push(',');
+            let kind = match edge.kind {
+                EdgeKind::Road => "Road",
+                EdgeKind::Rail => "Rail",
+            };
+
+            write!(
+                data,
+                r#"{{"id":"{}","from":"{}","to":"{}","kind":"{kind}"}}"#,
+                edge.id.0, edge.from.0, edge.to.0
+            )
+            .unwrap();
+            check_size(data.len())?;
         }
 
-        let kind = match edge.kind {
-            EdgeKind::Road => "Road",
-            EdgeKind::Rail => "Rail",
-        };
+        data.push_str("],\"trace\":{\"completed\":");
 
-        write!(
+        let completed_offset = data.len();
+
+        data.push_str("false,\"snapshots\":[");
+
+        check_size(data.len())?;
+
+        Ok(Self {
             data,
-            r#"{{"id":"{}","from":"{}","to":"{}","kind":"{kind}"}}"#,
-            edge.id.0, edge.from.0, edge.to.0
-        )
-        .unwrap();
+            completed_offset,
+        })
     }
 
-    write!(
-        data,
-        "],\"trace\":{{\"completed\":{},\"snapshots\":[",
-        trace.completed
-    )
-    .unwrap();
+    pub fn snapshot(&mut self, index: usize, snapshot: &RailSnapshot) -> Result<(), String> {
+        let data = &mut self.data;
 
-    for (index, snapshot) in trace.snapshots.iter().enumerate() {
         if index > 0 {
             data.push(',');
         }
@@ -89,25 +106,45 @@ pub(super) fn payload(
                 passenger.demand.origin.0, passenger.demand.destination.0, passenger.demand.amount,
                 passenger.waiting, passenger.onboard, passenger.arrived, passenger.unserved
             ).unwrap();
+            check_size(data.len())?;
         }
 
         data.push_str("]}");
+
+        // Every result still needs its trailer. A completed run can shorten "false" to "true".
+        let completed = matches!(snapshot.position, RailPosition::Complete { .. });
+        check_size(data.len() + r#"]},"analysis":null}"#.len() - usize::from(completed))
     }
 
-    data.push_str("]},\"analysis\":");
+    pub fn finish(
+        mut self,
+        completed: bool,
+        analysis: Option<&OperationalAnalysis>,
+    ) -> Result<String, String> {
+        let data = &mut self.data;
 
-    if let Some(analysis) = analysis {
-        write_analysis(&mut data, analysis);
-    } else {
-        data.push_str("null");
+        // A run's completion flag is known only after writing its last snapshot.
+        if completed {
+            data.replace_range(
+                self.completed_offset..self.completed_offset + "false".len(),
+                "true",
+            );
+        }
+        data.push_str("]},\"analysis\":");
+
+        if let Some(analysis) = analysis {
+            write_analysis(data, analysis)?;
+        } else {
+            data.push_str("null");
+        }
+
+        data.push('}');
+        check_size(data.len())?;
+        Ok(self.data)
     }
-
-    data.push('}');
-
-    data
 }
 
-fn write_analysis(data: &mut String, analysis: &OperationalAnalysis) {
+fn write_analysis(data: &mut String, analysis: &OperationalAnalysis) -> Result<(), String> {
     let optional = |value: Option<f64>| value.map_or_else(|| "null".into(), |v| v.to_string());
     let outcomes = analysis.passenger_outcomes;
 
@@ -148,6 +185,7 @@ fn write_analysis(data: &mut String, analysis: &OperationalAnalysis) {
             r#"{{"stop_index":"{}","node":"{}","boarded":"{}","alighted":"{}","remaining_waiting":"{}"}}"#,
             stop.stop_index, stop.node.0, stop.boarded, stop.alighted, stop.remaining_waiting,
         ).unwrap();
+        check_size(data.len())?;
     }
 
     let timing = analysis.route_timing;
@@ -157,4 +195,5 @@ fn write_analysis(data: &mut String, analysis: &OperationalAnalysis) {
         r#"],"route_timing":{{"elapsed_ticks":"{}","traveling_ticks":"{}","dwelling_ticks":"{}","completion_tick":"{}"}}}}"#,
         timing.elapsed_ticks, timing.traveling_ticks, timing.dwelling_ticks, timing.completion_tick,
     ).unwrap();
+    Ok(())
 }
