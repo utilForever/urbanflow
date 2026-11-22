@@ -1,9 +1,5 @@
 use super::*;
 use std::fs;
-#[cfg(any(windows, target_vendor = "apple"))]
-use std::io;
-use std::path::{Path, PathBuf};
-use workflow::OpenedScenario;
 
 const DEMO_SCENARIO: &str = include_str!("../../../tests/fixtures/scenarios/rail-demo.json");
 
@@ -26,8 +22,10 @@ impl Drop for Directory {
 
 #[test]
 fn startup_result_uses_the_existing_adapter_and_core_analysis() {
-    let result = results::parse("rail_service.json", DEMO).unwrap();
+    let desktop = Desktop::new().unwrap();
+    let result = desktop.preview;
 
+    assert!(desktop.recording.is_none());
     assert_eq!(result.world.nodes.len(), 3);
     assert_eq!(result.trace.snapshots.len(), 7);
     assert_eq!(result.trace.snapshots.last().unwrap().tick, 6);
@@ -36,6 +34,94 @@ fn startup_result_uses_the_existing_adapter_and_core_analysis() {
         result.analysis.unwrap(),
         urbanflow::analysis::analyze(&result.trace).unwrap()
     );
+}
+
+#[test]
+fn enter_opens_the_scenario_picker_in_a_new_window() {
+    let app = gpui::TestAppContext::single();
+    let (window, _) = app.update(|cx| {
+        gpui_kit::init(cx);
+        gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+            Desktop::new().unwrap().attach(window, cx)
+        })
+        .unwrap()
+    });
+
+    app.run_until_parked();
+
+    assert!(!app.did_prompt_for_paths());
+
+    let mut events = gpui::VisualTestContext::from_window(window, &app);
+    let enter = gpui::Keystroke::parse("enter").unwrap();
+
+    events.simulate_event(gpui::KeyDownEvent {
+        keystroke: enter.clone(),
+        is_held: false,
+        prefer_character_input: false,
+    });
+    events.simulate_event(gpui::KeyUpEvent { keystroke: enter });
+
+    assert!(app.did_prompt_for_paths());
+
+    app.simulate_path_prompt_response(|_| None);
+    app.run_until_parked();
+    app.quit();
+}
+
+#[test]
+fn run_leaves_the_foreground_available_before_recording_finishes() {
+    let directory = Directory::new("responsive");
+    let path = directory.0.join("long.json");
+
+    let mut input: serde_json::Value = serde_json::from_str(DEMO_SCENARIO).unwrap();
+    input["vehicle"]["travel_ticks_per_edge"] = "3000".into();
+    input["max_ticks"] = "2000".into();
+
+    fs::write(&path, input.to_string()).unwrap();
+
+    let mut app = gpui::TestAppContext::single();
+    let view = app.new(|_| Desktop::new().unwrap());
+
+    app.run_until_parked();
+    view.update(&mut app, |desktop, cx| {
+        desktop.scenario = Some(Arc::new(OpenedScenario::open(&path).unwrap()));
+        desktop.run(cx);
+    });
+
+    // Deliver Run, then dispatch another foreground event before servicing the worker.
+    assert!(app.dispatcher.tick(false));
+
+    view.update(&mut app, |desktop, cx| {
+        assert!(matches!(desktop.activity, Activity::Working));
+        assert!(desktop.recording.is_none());
+        desktop.open(cx);
+    });
+
+    assert!(
+        app.dispatcher.tick(true),
+        "Run must schedule its work on the background executor"
+    );
+
+    app.run_until_parked();
+
+    assert!(
+        !app.did_prompt_for_paths(),
+        "Open was accepted while Run was in progress"
+    );
+
+    app.read(|cx| {
+        let desktop = view.read(cx);
+        let trace = &desktop
+            .recording
+            .as_ref()
+            .expect(&desktop.status)
+            .data
+            .trace;
+
+        assert!(matches!(desktop.activity, Activity::Idle));
+        assert!(!trace.completed);
+        assert_eq!(trace.snapshots.last().unwrap().tick, 2000);
+    });
 }
 
 #[cfg(any(unix, windows))]
