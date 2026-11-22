@@ -143,7 +143,7 @@ To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod
 
 The [desktop app](apps/desktop/README.md) opens Rail scenario JSON and saves the same result JSON as the CLI. Choose **Open scenario…**, select [rail-demo.json](tests/fixtures/scenarios/rail-demo.json), then choose **Run**. The demo completes at tick 18 with 19 snapshots. **Save result as…** writes the displayed run to the file you choose, replacing an existing result.
 
-Runs use the opened file's `max_ticks`. Short runs display **Partial** and can be saved. The app records in the background and stops an oversized recording as soon as its encoded frames exceed the 16 MiB result limit. Opening another scenario keeps the last successful recording on screen. You can save that recording until a new run succeeds. Save protects the chosen and resolved input paths, including their current targets after a link changes. The desktop app follows the CLI's output permission and EFS rules.
+Runs use the opened file's `max_ticks`. Short runs display **Partial** and can be saved. The app records in the background and stops an oversized recording as soon as its encoded frames exceed the 16 MiB result limit. Opening a scenario, including reopening the same file after an edit, labels the displayed recording **Previous run**. You can save that recording until a new run succeeds. Save protects the chosen and resolved input paths, including their current targets after a link changes. The desktop app follows the CLI's output permission and EFS rules.
 
 With the Windows MSVC tools, SDK, CMake, and stable Rust installed:
 

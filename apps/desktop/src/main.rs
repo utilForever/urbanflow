@@ -185,9 +185,19 @@ impl Desktop {
         let Some(recording) = &self.recording else {
             return (&self.preview, "Bundled Rail result".to_owned());
         };
+        let label = if self
+            .scenario
+            .as_ref()
+            .is_some_and(|opened| Arc::ptr_eq(&opened.source, &recording.source))
+        {
+            "Result from"
+        } else {
+            "Previous run from"
+        };
+
         (
             &recording.data,
-            format!("Result from {}", recording.source.path.display()),
+            format!("{label} {}", recording.source.path.display()),
         )
     }
 }

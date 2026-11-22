@@ -4,7 +4,7 @@ The Windows app opens a Rail scenario, runs it up to its tick limit, and saves v
 
 ## Run and save a scenario
 
-1. **Open scenario…** has keyboard focus when the window opens. Press **Enter** or click the button, then select [rail-demo.json](../../tests/fixtures/scenarios/rail-demo.json). The window shows the validated file and its tick limit. Opening a file keeps the last result on screen with its source path. You can save it until a new run succeeds.
+1. **Open scenario…** has keyboard focus when the window opens. Press **Enter** or click the button, then select [rail-demo.json](../../tests/fixtures/scenarios/rail-demo.json). The window shows the validated file and its tick limit. Opening a file leaves the last result on screen with the label **Previous run from …**, even when you reopen the same path. You can save it until a new run succeeds.
 2. Choose **Run**. The demo shows **Completed at tick 18** and **19 snapshots**. Each run starts from the inputs captured when the file was opened. You can edit the file in an external editor and reopen it to pick up the changes.
 3. Choose **Save result as…** and select a JSON filename. The app saves the displayed result, including its core analysis, with the same bytes as the [scenario CLI](../../README.md#run-a-scenario-file). A new file inherits the chosen folder's permissions. Replacing a file preserves its owner and access permissions, including write-only access. If the app cannot copy those permissions, it reports an error and leaves the file intact. The app refuses to replace a Windows EFS-encrypted file. To save an encrypted copy, choose a new name in an EFS-encrypted folder.
 

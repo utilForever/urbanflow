@@ -93,7 +93,7 @@ Playback reads fixed snapshots and never advances simulation. Only the vehicle m
 
 ## Desktop Consumer
 
-[`apps/desktop`](apps/desktop/README.md) is the Windows application entry point and a separate Cargo workspace. GPUI Kit and Serde are consumer dependencies. The window starts with a bundled Rail preview. It owns the selected scenario and the last successful recording separately so another selection, a cancelled dialog, or a failed operation preserves the displayed result and its source.
+[`apps/desktop`](apps/desktop/README.md) is the Windows application entry point and a separate Cargo workspace. GPUI Kit and Serde are consumer dependencies. The window starts with a bundled Rail preview. It owns the selected scenario and the last successful recording separately so another selection, a cancelled dialog, or a failed operation preserves the displayed result and its source. Each successful Open creates a new selection. The window labels the recording as a previous run until a run of that selection succeeds.
 
 GPUI serializes Open, Run, and Save and shows native file pickers on the foreground executor. Its background executor loads validated Rail inputs and runs a fresh copy through the core's `snapshot` and `advance` APIs. The result adapter encodes each frame before retaining it and stops on the 16 MiB output limit. The [desktop workflow](apps/desktop/src/workflow.rs) publishes the world, trace, validated analysis, and JSON together. Each input retains its chosen path, resolved path, and file identity. On Windows a metadata-only handle pins the opened file after decoding, so editors can request exclusive data access.
 

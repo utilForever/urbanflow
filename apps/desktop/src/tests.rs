@@ -68,6 +68,20 @@ fn enter_opens_the_scenario_picker_in_a_new_window() {
     app.quit();
 }
 
+fn open_scenario(app: &mut gpui::TestAppContext, view: &Entity<Desktop>, path: Option<&Path>) {
+    view.update(app, Desktop::open);
+    app.run_until_parked();
+    app.simulate_path_prompt_response(|_| path.map(|path| vec![path.to_owned()]));
+    app.run_until_parked();
+}
+
+fn save_result_as(app: &mut gpui::TestAppContext, view: &Entity<Desktop>, path: &Path) {
+    view.update(app, Desktop::save);
+    app.run_until_parked();
+    app.simulate_new_path_selection(|_| Some(path.to_owned()));
+    app.run_until_parked();
+}
+
 #[test]
 fn run_leaves_the_foreground_available_before_recording_finishes() {
     let directory = Directory::new("responsive");
@@ -122,6 +136,60 @@ fn run_leaves_the_foreground_available_before_recording_finishes() {
         assert!(!trace.completed);
         assert_eq!(trace.snapshots.last().unwrap().tick, 2000);
     });
+}
+
+#[test]
+fn reopening_the_same_file_marks_the_saved_result_until_run_succeeds() {
+    let directory = Directory::new("reopen");
+    let input = directory.0.join("scenario.json");
+    let saved = directory.0.join("result.json");
+    let mut app = gpui::TestAppContext::single();
+    let view = app.new(|_| Desktop::new().unwrap());
+    let check_display = |app: &gpui::TestAppContext, label: &str, tick| {
+        app.read(|cx| {
+            let (result, source) = view.read(cx).displayed_result();
+            assert_eq!(source, format!("{label} {}", input.display()));
+            assert_eq!(result.trace.snapshots.last().unwrap().tick, tick);
+        });
+    };
+    let save = |app: &mut gpui::TestAppContext| {
+        save_result_as(app, &view, &saved);
+        results::load(&saved)
+            .unwrap()
+            .trace
+            .snapshots
+            .last()
+            .unwrap()
+            .tick
+    };
+
+    fs::write(&input, DEMO_SCENARIO).unwrap();
+    open_scenario(&mut app, &view, Some(&input));
+    view.update(&mut app, Desktop::run);
+    app.run_until_parked();
+
+    check_display(&app, "Result from", 18);
+
+    fs::write(
+        &input,
+        DEMO_SCENARIO.replace("\"max_ticks\": \"32\"", "\"max_ticks\": \"3\""),
+    )
+    .unwrap();
+    open_scenario(&mut app, &view, Some(&input));
+
+    assert_eq!(
+        app.read(|cx| view.read(cx).scenario.as_ref().unwrap().rail.max_ticks),
+        3
+    );
+    check_display(&app, "Previous run from", 18);
+    assert_eq!(save(&mut app), 18);
+    check_display(&app, "Previous run from", 18);
+
+    view.update(&mut app, Desktop::run);
+    app.run_until_parked();
+
+    check_display(&app, "Result from", 3);
+    assert_eq!(save(&mut app), 3);
 }
 
 #[cfg(any(unix, windows))]
