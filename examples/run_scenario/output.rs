@@ -10,6 +10,9 @@ use super::files::same_file;
 #[cfg(unix)]
 #[path = "output/unix.rs"]
 mod access;
+#[cfg(windows)]
+#[path = "output/windows.rs"]
+mod access;
 
 // Live output links have already been resolved. A link here must not be replaced.
 fn destination_exists(path: &Path) -> io::Result<bool> {
@@ -143,9 +146,7 @@ impl StagedOutput {
     }
 
     fn preserve_access(&self, destination: &Path) -> Result<(), String> {
-        #[cfg(not(unix))]
-        fs::metadata(destination).map_err(|e| format!("{}: {e}", destination.display()))?;
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         access::preserve(destination, &self.probe.0, &self.file)
             .map_err(|e| format!("{}: access permissions: {e}", destination.display()))?;
         Ok(())

@@ -25,7 +25,7 @@ const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> 
 /// components are rejected before recording or writing.
 ///
 /// Outputs are staged in sibling directories and compared using native filename lookup.
-/// Existing Unix files retain their ownership and access rules during replacement.
+/// Replacements retain ownership and access rules. An existing EFS-encrypted output is rejected.
 /// Files are then renamed: HTML first, JSON last. Each replacement is atomic,
 /// but the pair is not a filesystem transaction: a final JSON rename failure
 /// can leave the new HTML installed.

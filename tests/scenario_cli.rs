@@ -689,3 +689,70 @@ fn command_usage(#[case] args: Vec<&str>, #[case] success: bool) {
     assert_eq!(result.is_ok(), success);
     assert!(result.unwrap_or_else(|error| error).starts_with("usage:"));
 }
+
+#[cfg(windows)]
+#[test]
+fn encrypted_results_are_rejected_before_writing_and_before_replacement() {
+    use std::io::Write;
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows_sys::Win32::Foundation::{
+        ERROR_EFS_DISABLED, ERROR_NO_EFS, ERROR_NO_USER_KEYS, ERROR_NOT_SUPPORTED,
+        ERROR_VOLUME_NOT_SUPPORT_EFS,
+    };
+    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_ENCRYPTED;
+
+    let directory = RunDirectory::new("encrypted-result");
+    let result = directory.0.join("result.json");
+    let pending = output::StagedOutput::new(&result, "replacement", None).unwrap();
+    let mut protected = match fs::File::options()
+        .write(true)
+        .create_new(true)
+        .attributes(FILE_ATTRIBUTE_ENCRYPTED)
+        .open(&result)
+    {
+        Ok(file) => file,
+        Err(e)
+            if e.raw_os_error().is_some_and(|code| {
+                matches!(
+                    code as u32,
+                    ERROR_EFS_DISABLED
+                        | ERROR_NOT_SUPPORTED
+                        | ERROR_NO_EFS
+                        | ERROR_NO_USER_KEYS
+                        | ERROR_VOLUME_NOT_SUPPORT_EFS
+                )
+            }) =>
+        {
+            eprintln!("EFS unavailable for this test directory: {e}");
+            return;
+        }
+        Err(e) => panic!("creating the EFS test file: {e}"),
+    };
+
+    if protected.metadata().unwrap().file_attributes() & FILE_ATTRIBUTE_ENCRYPTED == 0 {
+        eprintln!("The test volume did not create an encrypted file");
+        return;
+    }
+
+    protected.write_all(b"previous result").unwrap();
+    drop(protected);
+
+    assert!(
+        output::StagedOutput::new(&result, "replacement", None)
+            .err()
+            .unwrap()
+            .contains("EFS")
+    );
+    assert!(
+        pending
+            .replace(&result, |_| Ok(()))
+            .unwrap_err()
+            .contains("EFS")
+    );
+    assert_eq!(fs::read(&result).unwrap(), b"previous result");
+    assert_ne!(
+        fs::metadata(&result).unwrap().file_attributes() & FILE_ATTRIBUTE_ENCRYPTED,
+        0
+    );
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 2);
+}
