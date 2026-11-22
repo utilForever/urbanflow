@@ -40,13 +40,9 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
     }
 
     let input = Path::new(&args[0]);
-    let scenario::Scenario::Rail(mut rail) = scenario::load(input).map_err(|e| e.to_string())?
-    else {
-        return Err(format!(
-            "{}: kind: run_scenario supports only rail; Env requires an action policy and result format",
-            input.display()
-        ));
-    };
+    let mut rail = scenario::load(input)
+        .and_then(|input_scenario| input_scenario.into_rail(input))
+        .map_err(|e| e.to_string())?;
     let input_path = fs::canonicalize(input).map_err(|e| format!("{}: {e}", input.display()))?;
     let result = output_path(Path::new(&args[1]))?;
     let html = args
