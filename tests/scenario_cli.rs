@@ -521,6 +521,8 @@ fn directory_endings_on_file_arguments_preserve_previous_results() {
 
     fs::write(&input, RAIL).unwrap();
 
+    let opened = desktop::OpenedScenario::open(&input).unwrap();
+    let recording = opened.run().unwrap();
     // Joining a path component can normalize away the ending on verbatim Windows paths.
     let with_ending = |base: &Path, ending: &str| {
         let mut path = base.to_path_buf();
@@ -528,6 +530,16 @@ fn directory_endings_on_file_arguments_preserve_previous_results() {
         path
     };
     let result = directory.0.join("result.json");
+
+    assert!(
+        desktop::OpenedScenario::open(&with_ending(&input, "/."))
+            .is_err_and(|error| error.contains("filename"))
+    );
+    assert!(
+        recording
+            .save(&with_ending(&result, "/."), &opened.source)
+            .is_err_and(|error| error.contains("filename"))
+    );
 
     #[cfg(windows)]
     let endings = ["/.", "/", "/..", "\\.", "\\", "\\.."];

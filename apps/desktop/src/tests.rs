@@ -83,6 +83,157 @@ fn save_result_as(app: &mut gpui::TestAppContext, view: &Entity<Desktop>, path: 
 }
 
 #[test]
+fn errors_and_cancel_preserve_the_last_run_and_its_inputs() {
+    let directory = Directory::new("preserve");
+    let first = directory.0.join("first.json");
+    let next = directory.0.join("next.json");
+    let mut app = gpui::TestAppContext::single();
+    let view = app.new(|_| Desktop::new().unwrap());
+    let save = |app: &mut gpui::TestAppContext, name: &str| {
+        let path = directory.0.join(name);
+        save_result_as(app, &view, &path);
+        fs::read(path).unwrap()
+    };
+
+    fs::write(&first, DEMO_SCENARIO).unwrap();
+    open_scenario(&mut app, &view, Some(&first));
+    view.update(&mut app, Desktop::run);
+    app.run_until_parked();
+
+    let recording = app.read(|cx| view.read(cx).recording.clone().unwrap());
+    let original = save(&mut app, "saved.json");
+
+    for (contents, message) in [
+        ("{", "JSON"),
+        (
+            include_str!("../../../tests/fixtures/scenarios/env-baseline.json"),
+            "supports only rail",
+        ),
+    ] {
+        fs::write(&next, contents).unwrap();
+        open_scenario(&mut app, &view, Some(&next));
+
+        app.read(|cx| {
+            let desktop = view.read(cx);
+            let status = &desktop.status;
+
+            assert!(
+                status.contains("next.json") && status.contains(message),
+                "expected Open to report {message}, got {status:?}"
+            );
+            assert!(Arc::ptr_eq(
+                &desktop.scenario.as_ref().unwrap().source,
+                &recording.source
+            ));
+            assert!(Arc::ptr_eq(desktop.recording.as_ref().unwrap(), &recording));
+        });
+    }
+
+    assert_eq!(save(&mut app, "after-open-error.json"), original);
+
+    let mut oversized: serde_json::Value = serde_json::from_str(DEMO_SCENARIO).unwrap();
+    oversized["demands"] = vec![oversized["demands"][0].clone(); 1200].into();
+    oversized["vehicle"]["travel_ticks_per_edge"] = "100".into();
+    oversized["max_ticks"] = "200".into();
+
+    fs::write(&next, oversized.to_string()).unwrap();
+    open_scenario(&mut app, &view, Some(&next));
+    view.update(&mut app, Desktop::run);
+    app.run_until_parked();
+
+    let selected = app.read(|cx| {
+        let desktop = view.read(cx);
+        let status = &desktop.status;
+
+        assert!(matches!(desktop.activity, Activity::Idle));
+        assert!(
+            status.contains("next.json") && status.contains("16 MiB"),
+            "expected Run to report the size limit, got {status:?}"
+        );
+
+        desktop.scenario.clone().unwrap()
+    });
+
+    assert_eq!(save(&mut app, "after-run-error.json"), original);
+
+    open_scenario(&mut app, &view, None);
+
+    app.read(|cx| {
+        let desktop = view.read(cx);
+        assert!(Arc::ptr_eq(desktop.scenario.as_ref().unwrap(), &selected));
+        assert!(Arc::ptr_eq(desktop.recording.as_ref().unwrap(), &recording));
+    });
+
+    let alias = directory.0.join("FIRST.JSON");
+    let mut inputs = vec![first.clone(), next.clone()];
+
+    if alias.try_exists().unwrap() {
+        inputs.push(alias);
+    }
+
+    for path in inputs {
+        let before = fs::read(&path).unwrap();
+
+        assert!(
+            recording
+                .save(&path, &selected.source)
+                .unwrap_err()
+                .contains("distinct")
+        );
+        assert_eq!(fs::read(path).unwrap(), before);
+    }
+
+    for path in [&first, &next] {
+        let renamed = path.with_extension("moved.json");
+        let alias = path.with_file_name(path.file_name().unwrap().to_str().unwrap().to_uppercase());
+        let aliases_on_this_volume = alias.try_exists().unwrap();
+
+        fs::rename(path, &renamed).unwrap();
+
+        let link = path.with_extension("link.json");
+
+        fs::hard_link(&renamed, &link).unwrap();
+
+        let before = fs::read(&renamed).unwrap();
+
+        for alias in [&renamed, &link] {
+            assert!(
+                recording
+                    .save(alias, &selected.source)
+                    .unwrap_err()
+                    .contains("distinct")
+            );
+            assert_eq!(fs::read(alias).unwrap(), before);
+        }
+
+        assert!(
+            recording
+                .save(path, &selected.source)
+                .unwrap_err()
+                .contains("distinct")
+        );
+        assert!(!path.exists());
+
+        if aliases_on_this_volume {
+            assert!(
+                recording
+                    .save(&alias, &selected.source)
+                    .unwrap_err()
+                    .contains("distinct")
+            );
+            assert!(!path.exists());
+        }
+    }
+
+    assert!(recording.save(&directory.0, &selected.source).is_err());
+    assert_eq!(fs::read(directory.0.join("saved.json")).unwrap(), original);
+
+    fs::write(directory.0.join("after-cancel.json"), "older result").unwrap();
+
+    assert_eq!(save(&mut app, "after-cancel.json"), original);
+}
+
+#[test]
 fn run_leaves_the_foreground_available_before_recording_finishes() {
     let directory = Directory::new("responsive");
     let path = directory.0.join("long.json");

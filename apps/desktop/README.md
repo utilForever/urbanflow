@@ -52,7 +52,7 @@ cargo +stable test --locked --target x86_64-pc-windows-msvc
 cargo +stable build --locked --target x86_64-pc-windows-msvc
 ```
 
-The [desktop tests](src/tests.rs) cover the startup preview, repeated runs, exclusive Windows edits, renamed inputs, dangling links, missing input folders, and permission-preserving replacement of a write-only result. The GPUI test dispatcher delivers a foreground event during a bounded run. The [Windows workflow](../../.github/workflows/desktop.yml) runs the desktop package checks with stable Rust.
+The [desktop tests](src/tests.rs) cover the startup preview, error recovery, exclusive Windows edits, renamed inputs, dangling links, missing input folders, and permission-preserving replacement of a write-only result. The GPUI test dispatcher delivers a foreground event during a bounded run. The [Windows workflow](../../.github/workflows/desktop.yml) runs the desktop package checks with stable Rust.
 
 To check native interaction, open the demo, run it, and save it through the two file pickers. Repeat with a copy that sets `max_ticks` to `"3"` and check for **Partial at tick 3** and four snapshots. Try opening an invalid file and saving the still-displayed result under another name. For a longer bounded run, set `vehicle.travel_ticks_per_edge` to `"30000"` and `max_ticks` to `"25000"` in the copy, reopen it, and resize the window during execution. The window should repaint and then report **Partial at tick 25000**.
 
