@@ -3,7 +3,7 @@ pub mod runner;
 
 use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 use runner::rail_viewer::{self, results};
@@ -75,7 +75,6 @@ fn repeated_runs_match_demo_trace_analysis_json_and_html() {
             saved.analysis,
             Some(urbanflow::analysis::analyze(&trace).unwrap())
         );
-
         directory.assert_no_staging_files();
     }
 }
@@ -191,7 +190,6 @@ fn output_names_follow_filesystem_alias_rules(#[case] first: &str, #[case] secon
             fs::read_to_string(&html).unwrap(),
             rail_viewer::render(&saved.world, &saved.trace).unwrap(),
         );
-
         directory.assert_no_staging_files();
     }
 
@@ -218,7 +216,6 @@ fn rejected_input_preserves_existing_outputs(#[case] json: &str, #[case] expecte
         "{error}"
     );
     assert_eq!(directory.outputs(), before);
-
     directory.assert_no_staging_files();
 }
 
@@ -241,7 +238,6 @@ fn encoding_failure_after_recording_preserves_existing_outputs() {
         "{error}"
     );
     assert_eq!(directory.outputs(), before);
-
     directory.assert_no_staging_files();
 }
 
@@ -295,6 +291,19 @@ fn recording_stops_at_the_first_frame_that_exceeds_the_result_limit() {
 #[test]
 fn output_errors_and_aliases_preserve_existing_files() {
     let directory = RunDirectory::new("output-errors");
+    let too_long = "h".repeat(300);
+
+    let mut args = directory.args();
+    args[2] = directory.0.join(&too_long).into_os_string();
+
+    let error = runner::run(args).unwrap_err();
+
+    assert!(
+        error.contains(&too_long) && !error.contains("result.json"),
+        "{error}"
+    );
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+
     let before = directory.seed_outputs();
 
     for (index, path, expected) in [
@@ -303,7 +312,7 @@ fn output_errors_and_aliases_preserve_existing_files() {
         (2, directory.0.join("./scenario.json"), "distinct"),
         (1, directory.0.clone(), "regular file"),
         (2, directory.0.join("missing/viewer.html"), "viewer.html"),
-        (2, directory.0.join("h".repeat(300)), "staging"),
+        (2, directory.0.join(&too_long), too_long.as_str()),
     ] {
         let mut args = directory.args();
         args[index] = path.into_os_string();
@@ -316,9 +325,153 @@ fn output_errors_and_aliases_preserve_existing_files() {
             fs::read_to_string(directory.0.join("scenario.json")).unwrap(),
             RAIL
         );
-
         directory.assert_no_staging_files();
     }
+}
+
+#[test]
+fn directory_endings_on_file_arguments_preserve_previous_results() {
+    let directory = RunDirectory::new("directory-endings");
+    let input = directory.0.join("scenario.json");
+
+    let mut partial: serde_json::Value = serde_json::from_str(RAIL).unwrap();
+    partial["max_ticks"] = "3".into();
+
+    fs::write(&input, partial.to_string()).unwrap();
+
+    let before = directory.seed_outputs();
+
+    fs::write(&input, RAIL).unwrap();
+
+    // Joining a path component can normalize away the ending on verbatim Windows paths.
+    let with_ending = |base: &Path, ending: &str| {
+        let mut path = base.to_path_buf();
+        path.as_mut_os_string().push(ending);
+        path
+    };
+    let result = directory.0.join("result.json");
+
+    #[cfg(windows)]
+    let endings = ["/.", "/", "/..", "\\.", "\\", "\\.."];
+    #[cfg(not(windows))]
+    let endings = ["/.", "/", "/.."];
+    // Include verbatim paths for new outputs on Windows.
+    let canonical = fs::canonicalize(&directory.0).unwrap();
+
+    for (index, base) in [
+        (0, input),
+        (1, result),
+        (2, directory.0.join("viewer.html")),
+        (1, canonical.join("new.json")),
+        (2, canonical.join("new.html")),
+    ] {
+        for ending in endings {
+            let path = with_ending(&base, ending).into_os_string();
+
+            let mut args = directory.args();
+            args[index] = path.clone();
+
+            let error = runner::run(args).unwrap_err();
+
+            assert!(
+                error.starts_with(path.to_string_lossy().as_ref()) && error.contains("filename"),
+                "{error}"
+            );
+
+            assert_eq!(directory.outputs(), before);
+            directory.assert_no_staging_files();
+        }
+    }
+}
+
+#[rstest]
+#[case::input_and_json(0, 1)]
+#[case::input_and_html(0, 2)]
+#[case::both_outputs(1, 2)]
+fn hard_linked_paths_are_rejected(#[case] first: usize, #[case] second: usize) {
+    let directory = RunDirectory::new(&format!("hard-links-{first}-{second}"));
+    let args = directory.args();
+
+    fs::write(&args[1], "previous result").unwrap();
+    fs::write(&args[2], "previous viewer").unwrap();
+    fs::remove_file(&args[second]).unwrap();
+    fs::hard_link(&args[first], &args[second]).unwrap();
+
+    let before = directory.outputs();
+
+    assert!(runner::run(args).unwrap_err().contains("distinct"));
+    assert_eq!(directory.outputs(), before);
+    assert_eq!(
+        fs::read_to_string(directory.0.join("scenario.json")).unwrap(),
+        RAIL
+    );
+    directory.assert_no_staging_files();
+}
+
+#[cfg(any(unix, windows))]
+fn create_output_link(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink as symlink_file;
+    #[cfg(windows)]
+    use std::os::windows::fs::symlink_file;
+
+    let created = symlink_file(target, link);
+
+    #[cfg(windows)]
+    if created
+        .as_ref()
+        .is_err_and(|e| e.raw_os_error() == Some(1314))
+    {
+        return false; // Windows can require a privilege for symbolic links.
+    }
+
+    created.unwrap();
+    true
+}
+
+#[cfg(any(unix, windows))]
+#[rstest]
+#[case::json(1, 2)]
+#[case::html(2, 1)]
+fn unresolved_output_links_preserve_both_outputs(#[case] link: usize, #[case] other: usize) {
+    let directory = RunDirectory::new(&format!("output-link-{link}"));
+    let args = directory.args();
+    let target_name = Path::new("archive");
+    let target = directory.0.join(target_name);
+    let chosen = Path::new(&args[link]);
+
+    fs::write(&target, "old contents").unwrap();
+
+    if !create_output_link(target_name, chosen) {
+        return;
+    }
+
+    runner::run(args.clone()).unwrap();
+
+    let contents = fs::read(&target).unwrap();
+
+    assert_ne!(contents, b"old contents");
+    assert_eq!(fs::read_link(chosen).unwrap(), target_name);
+
+    let previous = directory.0.join("previous");
+
+    fs::rename(&target, &previous).unwrap();
+    fs::write(&args[other], "keep this output").unwrap();
+
+    let error = runner::run(args.clone()).unwrap_err();
+
+    assert!(
+        error.contains("symbolic link") && error.contains(chosen.to_str().unwrap()),
+        "{error}"
+    );
+
+    assert_eq!(fs::read_link(chosen).unwrap(), target_name);
+    assert_eq!(
+        fs::read_to_string(&args[other]).unwrap(),
+        "keep this output"
+    );
+    assert_eq!(fs::read(previous).unwrap(), contents);
+    assert!(!target.exists());
 }
 
 #[rstest]

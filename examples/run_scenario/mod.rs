@@ -1,5 +1,6 @@
 //! Bounded Rail scenario execution and consumer-owned JSON/HTML output.
 
+pub(crate) mod files;
 #[path = "../rail_viewer/mod.rs"]
 pub mod rail_viewer;
 #[path = "../scenario/mod.rs"]
@@ -11,6 +12,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use files::{ScenarioFile, output_path, same_file};
+
 const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> <result.json> [viewer.html]\nRuns kind=rail with the file's max_ticks; Env execution is unsupported.\nUse distinct input/output paths and existing output directories.";
 
 /// Runs one Rail scenario, or returns usage for a lone `--help`/`-h` argument.
@@ -19,15 +22,16 @@ const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> 
 /// before any destination is replaced. Zero/short limits succeed with partial
 /// results. Env inputs fail because this consumer defines no action policy or
 /// Env result format. Errors include the input or output path where applicable.
+/// Each path must end in a filename. Trailing separators and final `.` or `..`
+/// components are rejected before recording or writing.
 ///
-/// Outputs are staged inside temporary sibling directories. Native filename
-/// lookup there rejects aliases even when both destinations are absent, including
-/// case/Unicode aliases on filesystems that treat those names as equivalent.
+/// Outputs are staged in sibling directories. Native filename lookup checks absent output names.
 /// Files are then renamed: HTML first, JSON last. Each replacement is atomic,
 /// but the pair is not a filesystem transaction: a final JSON rename failure
 /// can leave the new HTML installed.
 /// Temporary files are removed on ordinary failures; crash durability is not
-/// guaranteed. Input/output aliases and directories as outputs are rejected.
+/// guaranteed. Paths to the same file or directory entry are rejected, as are
+/// output directories and symbolic links whose targets cannot be resolved.
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
     let args: Vec<_> = args.into_iter().collect();
 
@@ -40,23 +44,25 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
     }
 
     let input = Path::new(&args[0]);
-    let mut rail = scenario::load(input)
-        .and_then(|input_scenario| input_scenario.into_rail(input))
-        .map_err(|e| e.to_string())?;
-    let input_path = fs::canonicalize(input).map_err(|e| format!("{}: {e}", input.display()))?;
-    let result = output_path(Path::new(&args[1]))?;
+    let (source, mut rail) = ScenarioFile::open(input)?;
+    let inputs = [&source];
+    let result_arg = Path::new(&args[1]);
+    let result = output_path(result_arg, &inputs)?;
     let html = args
         .get(2)
-        .map(|arg| output_path(Path::new(arg)))
+        .map(|arg| output_path(Path::new(arg), &inputs))
         .transpose()?;
+    let check_outputs = || {
+        if let Some(path) = &html
+            && same_file(&result, path)?
+        {
+            return Err("result and HTML paths must be distinct".to_owned());
+        }
 
-    if result == input_path
-        || html
-            .as_ref()
-            .is_some_and(|path| *path == input_path || *path == result)
-    {
-        return Err("input, result, and HTML paths must be distinct".to_owned());
-    }
+        Ok(())
+    };
+
+    check_outputs()?;
 
     let trace = rail
         .vehicle
@@ -93,31 +99,6 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
         html.map(|path| format!("; HTML: {}", path.display()))
             .unwrap_or_default(),
     ))
-}
-
-fn output_path(path: &Path) -> Result<PathBuf, String> {
-    let resolved = if path.exists() {
-        fs::canonicalize(path)
-    } else {
-        let parent = path
-            .parent()
-            .filter(|path| !path.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        fs::canonicalize(parent).and_then(|parent| {
-            path.file_name()
-                .map(|name| parent.join(name))
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "expected an output filename")
-                })
-        })
-    }
-    .map_err(|e| format!("{}: {e}", path.display()))?;
-
-    if resolved.exists() && !resolved.is_file() {
-        return Err(format!("{}: output must be a regular file", path.display()));
-    }
-
-    Ok(resolved)
 }
 
 struct StagedOutput(PathBuf);
