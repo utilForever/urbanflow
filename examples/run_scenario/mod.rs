@@ -1,18 +1,17 @@
 //! Bounded Rail scenario execution and consumer-owned JSON/HTML output.
 
 pub(crate) mod files;
+pub(crate) mod output;
 #[path = "../rail_viewer/mod.rs"]
 pub mod rail_viewer;
 #[path = "../scenario/mod.rs"]
 pub mod scenario;
 
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
 
 use files::{ScenarioFile, output_path, same_file};
+use output::StagedOutput;
 
 const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> <result.json> [viewer.html]\nRuns kind=rail with the file's max_ticks; Env execution is unsupported.\nUse distinct input/output paths and existing output directories.";
 
@@ -25,7 +24,7 @@ const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> 
 /// Each path must end in a filename. Trailing separators and final `.` or `..`
 /// components are rejected before recording or writing.
 ///
-/// Outputs are staged in sibling directories. Native filename lookup checks absent output names.
+/// Outputs are staged in sibling directories and compared using native filename lookup.
 /// Files are then renamed: HTML first, JSON last. Each replacement is atomic,
 /// but the pair is not a filesystem transaction: a final JSON rename failure
 /// can leave the new HTML installed.
@@ -80,11 +79,11 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
 
     let staged_result = StagedOutput::new(&result, &json, html.as_deref())?;
 
-    if let (Some(path), Some(contents)) = (&html, &rendered) {
-        StagedOutput::new(path, contents, Some(&result))?.replace(path)?;
+    if let Some((path, contents)) = html.as_deref().zip(rendered.as_deref()) {
+        StagedOutput::new(path, contents, Some(&result))?.replace(path, |_| check_outputs())?;
     }
 
-    staged_result.replace(&result)?;
+    staged_result.replace(&result, |_| check_outputs())?;
 
     Ok(format!(
         "{} at tick {}; {} snapshots; result: {}{}",
@@ -99,73 +98,4 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
         html.map(|path| format!("; HTML: {}", path.display()))
             .unwrap_or_default(),
     ))
-}
-
-struct StagedOutput(PathBuf);
-
-impl StagedOutput {
-    fn new(
-        destination: &Path,
-        contents: &str,
-        other_output: Option<&Path>,
-    ) -> Result<Self, String> {
-        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
-
-        loop {
-            let directory = destination.with_file_name(format!(
-                ".urbanflow-{}-{}.tmp",
-                std::process::id(),
-                NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed),
-            ));
-
-            match fs::create_dir(&directory) {
-                Ok(()) => {}
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(format!("{}: staging: {e}", destination.display())),
-            }
-
-            let staged = Self(directory.join(destination.file_name().unwrap()));
-
-            if std::iter::once(destination)
-                .chain(other_output)
-                .any(|output| fs::canonicalize(output).is_ok_and(|resolved| resolved == directory))
-            {
-                continue;
-            }
-
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&staged.0)
-                .map_err(|e| format!("{}: staging: {e}", destination.display()))?;
-
-            if let Some(other) = other_output
-                && destination.parent() == other.parent()
-                && staged
-                    .0
-                    .with_file_name(other.file_name().unwrap())
-                    .try_exists()
-                    .map_err(|e| format!("{}: staging: {e}", other.display()))?
-            {
-                return Err("input, result, and HTML paths must be distinct".to_owned());
-            }
-
-            file.write_all(contents.as_bytes())
-                .and_then(|()| file.sync_all())
-                .map_err(|e| format!("{}: staging: {e}", destination.display()))?;
-
-            return Ok(staged);
-        }
-    }
-
-    fn replace(self, destination: &Path) -> Result<(), String> {
-        fs::rename(&self.0, destination)
-            .map_err(|e| format!("{}: replacement: {e}", destination.display()))
-    }
-}
-
-impl Drop for StagedOutput {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(self.0.parent().unwrap());
-    }
 }

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use rstest::rstest;
 use runner::rail_viewer::{self, results};
-use runner::scenario;
+use runner::{output, scenario};
 
 const RAIL: &str = include_str!("fixtures/scenarios/rail-demo.json");
 
@@ -145,6 +145,27 @@ fn html_is_optional() {
             .completed
     );
     assert!(!directory.0.join("viewer.html").exists());
+}
+
+#[test]
+fn a_removed_replacement_destination_can_be_retried_as_a_new_file() {
+    let directory = RunDirectory::new("removed-result");
+    let result = directory.0.join("result.json");
+
+    fs::write(&result, "previous result").unwrap();
+
+    let staged = output::StagedOutput::new(&result, "staged result", None).unwrap();
+
+    fs::remove_file(&result).unwrap();
+
+    assert!(staged.replace(&result, |_| Ok(())).is_err());
+    assert!(!result.exists());
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+
+    runner::run(directory.args()).unwrap();
+
+    assert!(results::load(result).unwrap().trace.completed);
+    directory.assert_no_staging_files();
 }
 
 #[rstest]
@@ -408,6 +429,47 @@ fn hard_linked_paths_are_rejected(#[case] first: usize, #[case] second: usize) {
     directory.assert_no_staging_files();
 }
 
+#[test]
+fn absent_outputs_are_compared_in_the_physical_directory() {
+    let directory = RunDirectory::new("directory-alias");
+
+    fs::create_dir(directory.0.join("sub")).unwrap();
+
+    let result = directory.0.join("result.json");
+    let alias = directory.0.join("sub/../result.json");
+    let staged = output::StagedOutput::new(&result, "result", Some(&alias));
+
+    assert!(matches!(staged, Err(error) if error.contains("distinct")));
+    assert!(!result.exists());
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 2);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn cli_rejects_the_same_entry_across_apfs_volume_paths() {
+    let directory = RunDirectory::new("apfs-volume-paths");
+    let root = fs::canonicalize(&directory.0).unwrap();
+    let alias = std::path::Path::new("/System/Volumes/Data").join(root.strip_prefix("/").unwrap());
+
+    if !alias.try_exists().unwrap() || !same_file::is_same_file(&root, &alias).unwrap() {
+        return; // This volume has no alternate Data mount path.
+    }
+
+    let input = root.join("scenario.json");
+    let result = root.join("result.json");
+
+    for (json, html) in [
+        (alias.join("scenario.json"), root.join("viewer.html")),
+        (result.clone(), alias.join("result.json")),
+    ] {
+        let args = [input.clone(), json, html].map(PathBuf::into_os_string);
+
+        assert!(runner::run(args).unwrap_err().contains("distinct"));
+        assert_eq!(fs::read_to_string(&input).unwrap(), RAIL);
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    }
+}
+
 #[cfg(any(unix, windows))]
 fn create_output_link(target: &Path, link: &Path) -> bool {
     #[cfg(unix)]
@@ -472,6 +534,28 @@ fn unresolved_output_links_preserve_both_outputs(#[case] link: usize, #[case] ot
     );
     assert_eq!(fs::read(previous).unwrap(), contents);
     assert!(!target.exists());
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn a_link_appearing_after_staging_is_preserved() {
+    let directory = RunDirectory::new("late-output-link");
+    let result = directory.0.join("result.json");
+    let missing = Path::new("missing.json");
+    let staged = output::StagedOutput::new(&result, "new result", None).unwrap();
+
+    if !create_output_link(missing, &result) {
+        return;
+    }
+
+    assert!(
+        staged
+            .replace(&result, |_| Ok(()))
+            .unwrap_err()
+            .contains("symbolic link")
+    );
+    assert_eq!(fs::read_link(result).unwrap(), missing);
+    assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 2);
 }
 
 #[rstest]
