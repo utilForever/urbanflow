@@ -86,11 +86,10 @@ fn decimal_budget_matches_rust_values_and_actions(#[case] token: &str, #[case] b
 #[test]
 fn rail_file_matches_demo_trace_analysis_and_viewer_on_repeated_runs() {
     let (world, trace) = rail_viewer::scenario();
+    let path = fixture("rail-demo.json");
 
     for _ in 0..2 {
-        let Scenario::Rail(mut loaded) = load(fixture("rail-demo.json")).unwrap() else {
-            panic!("expected Rail");
-        };
+        let mut loaded = load(&path).unwrap().into_rail(&path).unwrap();
 
         assert_eq!(loaded.world.nodes, world.nodes);
         assert_eq!(loaded.world.network.edges(), world.network.edges());

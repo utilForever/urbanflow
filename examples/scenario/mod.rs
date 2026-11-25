@@ -20,7 +20,7 @@ pub enum Scenario {
 }
 
 /// A fresh Rail service. Pass these fields to the existing recording API.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RailScenario {
     pub world: World,
     pub vehicle: RailVehicle,
@@ -55,6 +55,19 @@ pub fn load(path: impl AsRef<Path>) -> Result<Scenario, LoadError> {
     })?;
 
     parse(path, &json)
+}
+
+impl Scenario {
+    /// Extracts Rail inputs for consumers that do not supply an Env action policy.
+    pub fn into_rail(self, path: &Path) -> Result<RailScenario, LoadError> {
+        match self {
+            Self::Rail(rail) => Ok(rail),
+            Self::Env(_) => Err(LoadError {
+                file: path.to_owned(),
+                detail: "kind: this command supports only rail; Env requires an action policy and result format".into(),
+            }),
+        }
+    }
 }
 
 /// Parses already-read UTF-8 JSON, using `file` to qualify diagnostics.

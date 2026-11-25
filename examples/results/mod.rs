@@ -10,7 +10,8 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use urbanflow::analysis::{self, AnalysisError, OperationalAnalysis};
-use urbanflow::rail::{RailPosition, RailTrace};
+use urbanflow::rail::{RailPassengers, RailPosition, RailStepError, RailTrace, RailVehicle};
+use urbanflow::time::SimulationClock;
 use urbanflow::world::{EdgeKind, World};
 
 /// Maximum UTF-8 JSON size, including whitespace, on both read and write (16 MiB).
@@ -83,10 +84,8 @@ pub fn parse(file: impl AsRef<Path>, json: &str) -> Result<RailResult, ResultErr
 
     check_size(json.len()).map_err(|detail| error(file, detail))?;
     let (world, trace) = decode::document(json).map_err(|detail| error(file, detail))?;
-    let analysis = validate(&world, &trace).map_err(|detail| error(file, detail))?;
-
-    check_size(encode::payload(&world, &trace, analysis.as_ref()).len())
-        .map_err(|detail| error(file, format!("encoded {detail}")))?;
+    let (_, analysis) =
+        encode_with_analysis(&world, &trace).map_err(|failure| error(file, failure.detail))?;
 
     Ok(RailResult {
         world,
@@ -100,13 +99,82 @@ pub fn parse(file: impl AsRef<Path>, json: &str) -> Result<RailResult, ResultErr
 /// The result is JSON, not HTML; consumers must escape it for their embedding context.
 /// In-memory failures use `<result>` as their diagnostic filename.
 pub fn encode(world: &World, trace: &RailTrace) -> Result<String, ResultError> {
+    encode_with_analysis(world, trace).map(|(json, _)| json)
+}
+
+/// Produces the same JSON as [`encode`] and returns the analysis used to encode it.
+/// Partial recordings and completed recordings missing their initial state return no analysis.
+pub fn encode_with_analysis(
+    world: &World,
+    trace: &RailTrace,
+) -> Result<(String, Option<OperationalAnalysis>), ResultError> {
     let file = Path::new("<result>");
     let analysis = validate(world, trace).map_err(|detail| error(file, detail))?;
-    let json = encode::payload(world, trace, analysis.as_ref());
+    let mut encoder = encode::Encoder::new(world).map_err(|detail| error(file, detail))?;
 
-    check_size(json.len()).map_err(|detail| error(file, detail))?;
+    for (index, snapshot) in trace.snapshots.iter().enumerate() {
+        encoder
+            .snapshot(index, snapshot)
+            .map_err(|detail| error(file, detail))?;
+    }
 
-    Ok(json)
+    let json = encoder
+        .finish(trace.completed, analysis.as_ref())
+        .map_err(|detail| error(file, detail))?;
+
+    Ok((json, analysis))
+}
+
+/// Records the initial state and at most `max_ticks` advances, encoding each frame as it arrives.
+/// Stops at completion or when the version 1 result exceeds the file limit. An error returns
+/// no recording. The supplied service retains any successful advances, so callers that need
+/// retryable inputs should pass a fresh service. Successful bytes match [`encode`].
+pub fn record(
+    world: World,
+    vehicle: &mut RailVehicle,
+    clock: &mut SimulationClock,
+    passengers: &mut RailPassengers,
+    max_ticks: u64,
+) -> Result<(RailResult, String), String> {
+    let mut encoder = encode::Encoder::new(&world)?;
+    let mut trace = RailTrace {
+        snapshots: Vec::new(),
+        completed: false,
+    };
+    let execution_error = |e: RailStepError| format!("execution: {e:?}");
+
+    for elapsed in 0..=max_ticks {
+        if elapsed > 0 {
+            vehicle
+                .advance(clock, passengers)
+                .map_err(execution_error)?;
+        }
+
+        let snapshot = vehicle
+            .snapshot(clock, passengers)
+            .map_err(RailStepError::Passengers)
+            .map_err(execution_error)?;
+
+        encoder.snapshot(trace.snapshots.len(), &snapshot)?;
+        trace.completed = matches!(snapshot.position, RailPosition::Complete { .. });
+        trace.snapshots.push(snapshot);
+
+        if trace.completed {
+            break;
+        }
+    }
+
+    let analysis = validate(&world, &trace)?;
+    let json = encoder.finish(trace.completed, analysis.as_ref())?;
+
+    Ok((
+        RailResult {
+            world,
+            trace,
+            analysis,
+        },
+        json,
+    ))
 }
 
 /// Validates and encodes fully before opening the destination for writing.

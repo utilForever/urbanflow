@@ -1,15 +1,17 @@
 //! Bounded Rail scenario execution and consumer-owned JSON/HTML output.
 
+pub(crate) mod files;
+pub(crate) mod output;
 #[path = "../rail_viewer/mod.rs"]
 pub mod rail_viewer;
 #[path = "../scenario/mod.rs"]
 pub mod scenario;
 
 use std::ffi::OsString;
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
+
+use files::{ScenarioFile, check_destination, output_path, same_file};
+use output::StagedOutput;
 
 const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> <result.json> [viewer.html]\nRuns kind=rail with the file's max_ticks; Env execution is unsupported.\nUse distinct input/output paths and existing output directories.";
 
@@ -19,15 +21,20 @@ const USAGE: &str = "usage: cargo run --example run_scenario -- <scenario.json> 
 /// before any destination is replaced. Zero/short limits succeed with partial
 /// results. Env inputs fail because this consumer defines no action policy or
 /// Env result format. Errors include the input or output path where applicable.
+/// Each path must end in a filename. Trailing separators and final `.` or `..`
+/// components are rejected before recording or writing.
 ///
-/// Outputs are staged inside temporary sibling directories. Native filename
-/// lookup there rejects aliases even when both destinations are absent, including
-/// case/Unicode aliases on filesystems that treat those names as equivalent.
+/// New outputs inherit the chosen directory's file permissions. One new JSON
+/// output needs only a temporary sibling file. Replacements use sibling directories
+/// and retain the existing owner, group, and access rules. Native filename lookup
+/// rejects equivalent names even when both outputs are absent. A permission-copy
+/// failure or an existing Windows EFS-encrypted file stops that replacement.
 /// Files are then renamed: HTML first, JSON last. Each replacement is atomic,
 /// but the pair is not a filesystem transaction: a final JSON rename failure
 /// can leave the new HTML installed.
 /// Temporary files are removed on ordinary failures; crash durability is not
-/// guaranteed. Input/output aliases and directories as outputs are rejected.
+/// guaranteed. Paths to the same file or directory entry are rejected, as are
+/// output directories and symbolic links whose targets cannot be resolved.
 pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
     let args: Vec<_> = args.into_iter().collect();
 
@@ -40,27 +47,25 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
     }
 
     let input = Path::new(&args[0]);
-    let scenario::Scenario::Rail(mut rail) = scenario::load(input).map_err(|e| e.to_string())?
-    else {
-        return Err(format!(
-            "{}: kind: run_scenario supports only rail; Env requires an action policy and result format",
-            input.display()
-        ));
-    };
-    let input_path = fs::canonicalize(input).map_err(|e| format!("{}: {e}", input.display()))?;
-    let result = output_path(Path::new(&args[1]))?;
+    let (source, mut rail) = ScenarioFile::open(input)?;
+    let inputs = [&source];
+    let result_arg = Path::new(&args[1]);
+    let result = output_path(result_arg, &inputs)?;
     let html = args
         .get(2)
-        .map(|arg| output_path(Path::new(arg)))
+        .map(|arg| output_path(Path::new(arg), &inputs))
         .transpose()?;
+    let check_outputs = || {
+        if let Some(path) = &html
+            && same_file(&result, path)?
+        {
+            return Err("result and HTML paths must be distinct".to_owned());
+        }
 
-    if result == input_path
-        || html
-            .as_ref()
-            .is_some_and(|path| *path == input_path || *path == result)
-    {
-        return Err("input, result, and HTML paths must be distinct".to_owned());
-    }
+        Ok(())
+    };
+
+    check_outputs()?;
 
     let trace = rail
         .vehicle
@@ -76,13 +81,20 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
         })
         .transpose()?;
 
-    let staged_result = StagedOutput::new(&result, &json, html.as_deref())?;
+    let mut staged_result = StagedOutput::new(&result, &json, html.as_deref())?;
 
-    if let (Some(path), Some(contents)) = (&html, &rendered) {
-        StagedOutput::new(path, contents, Some(&result))?.replace(path)?;
+    if let Some((path, contents)) = html.as_deref().zip(rendered.as_deref()) {
+        StagedOutput::new(path, contents, Some(&result))?.replace(path, |staged_html| {
+            check_outputs()?;
+            check_destination(&mut staged_result, result_arg, &result, &inputs)?;
+            check_destination(staged_html, Path::new(&args[2]), path, &inputs)
+        })?;
     }
 
-    staged_result.replace(&result)?;
+    staged_result.replace(&result, |staged| {
+        check_outputs()?;
+        check_destination(staged, result_arg, &result, &inputs)
+    })?;
 
     Ok(format!(
         "{} at tick {}; {} snapshots; result: {}{}",
@@ -97,98 +109,4 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<String, String> {
         html.map(|path| format!("; HTML: {}", path.display()))
             .unwrap_or_default(),
     ))
-}
-
-fn output_path(path: &Path) -> Result<PathBuf, String> {
-    let resolved = if path.exists() {
-        fs::canonicalize(path)
-    } else {
-        let parent = path
-            .parent()
-            .filter(|path| !path.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        fs::canonicalize(parent).and_then(|parent| {
-            path.file_name()
-                .map(|name| parent.join(name))
-                .ok_or_else(|| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "expected an output filename")
-                })
-        })
-    }
-    .map_err(|e| format!("{}: {e}", path.display()))?;
-
-    if resolved.exists() && !resolved.is_file() {
-        return Err(format!("{}: output must be a regular file", path.display()));
-    }
-
-    Ok(resolved)
-}
-
-struct StagedOutput(PathBuf);
-
-impl StagedOutput {
-    fn new(
-        destination: &Path,
-        contents: &str,
-        other_output: Option<&Path>,
-    ) -> Result<Self, String> {
-        static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
-
-        loop {
-            let directory = destination.with_file_name(format!(
-                ".urbanflow-{}-{}.tmp",
-                std::process::id(),
-                NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed),
-            ));
-
-            match fs::create_dir(&directory) {
-                Ok(()) => {}
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(format!("{}: staging: {e}", destination.display())),
-            }
-
-            let staged = Self(directory.join(destination.file_name().unwrap()));
-
-            if std::iter::once(destination)
-                .chain(other_output)
-                .any(|output| fs::canonicalize(output).is_ok_and(|resolved| resolved == directory))
-            {
-                continue;
-            }
-
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&staged.0)
-                .map_err(|e| format!("{}: staging: {e}", destination.display()))?;
-
-            if let Some(other) = other_output
-                && destination.parent() == other.parent()
-                && staged
-                    .0
-                    .with_file_name(other.file_name().unwrap())
-                    .try_exists()
-                    .map_err(|e| format!("{}: staging: {e}", other.display()))?
-            {
-                return Err("input, result, and HTML paths must be distinct".to_owned());
-            }
-
-            file.write_all(contents.as_bytes())
-                .and_then(|()| file.sync_all())
-                .map_err(|e| format!("{}: staging: {e}", destination.display()))?;
-
-            return Ok(staged);
-        }
-    }
-
-    fn replace(self, destination: &Path) -> Result<(), String> {
-        fs::rename(&self.0, destination)
-            .map_err(|e| format!("{}: replacement: {e}", destination.display()))
-    }
-}
-
-impl Drop for StagedOutput {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(self.0.parent().unwrap());
-    }
 }

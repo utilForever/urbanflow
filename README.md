@@ -29,7 +29,7 @@
 - `Env` evaluates directed Road/Rail networks with demand, capacity, construction costs, and reinforcement learning rewards.
 - `rail` runs one fixed-route vehicle with timed movement, boarding, alighting, snapshots, and bounded traces.
 - `analysis` summarizes passenger outcomes and times, vehicle occupancy, stop activity, and route timing from completed Rail traces.
-- An offline HTML viewer replays traces and displays the analysis.
+- The Windows app runs Rail scenario files and saves result JSON. An offline HTML viewer replays traces and displays the analysis.
 
 Env and Rail run independently. Multiple vehicles, transfers, timetables, Tram/DRT service, road traffic, and geographic maps remain planned; see [Architecture](ARCHITECTURE.md#planned-direction).
 
@@ -91,7 +91,9 @@ The [`run_scenario` example](examples/run_scenario.rs) loads a Rail scenario, re
 
 A zero or short limit succeeds with an explicitly `Partial` status, `completed: false`, and `analysis: null`; waiting/onboard passengers stay in the viewable recording. `Completed` describes vehicle completion, not universal passenger arrival. Env scenarios are rejected: this command defines no Env action policy or result format. The other examples retain their built-in scenarios.
 
-Exit status is 0 for success (including partial runs and help), or 1 with a diagnostic on stderr for argument, input, execution, analysis, size, or output errors. Use distinct input/result/HTML paths and existing output directories. Input aliases and output collisions are rejected, including new output names that the filesystem treats as equivalent by case or Unicode spelling. Validation, execution, encoding, and rendering finish before replacement, so failures in those stages leave existing outputs unchanged. Each output is staged inside a temporary sibling directory, where native filename lookup checks for aliases, then renamed, HTML first and JSON last; failed staging or HTML replacement preserves the existing JSON. The two files are not one transaction: if the final JSON replacement fails, HTML may already be updated. Successful runs overwrite existing outputs; crash durability is not guaranteed. The result format's 16 MiB limit applies, but `max_ticks` does not bound total memory use.
+Exit status is 0 for success (including partial runs and help), or 1 with a diagnostic on stderr for argument, input, execution, analysis, size, or output errors. Use distinct input, result, and HTML paths in existing directories. Each path must end in a filename. A trailing separator or a final `.` or `..` component is an error. The CLI rejects hard links to the same file and equivalent output names in the same physical directory, even when you reach it by different paths. The filesystem determines whether case or Unicode spellings are equivalent. A symbolic link to a regular output file updates its target. A link with a missing target produces an error and stays intact. The result format's 16 MiB limit applies, but `max_ticks` does not bound total memory use.
+
+The CLI finishes validation, execution, encoding, and rendering before replacing any output. New files inherit their folder's access rules. A single new JSON export works in a folder that permits files and forbids subdirectories. Replacements retain the existing file's ownership and access permissions. Windows refuses to replace an EFS-encrypted output. To save an encrypted copy, choose a new name in an EFS-encrypted folder. The CLI installs HTML first and JSON last using separate renames. A staging or HTML replacement failure preserves the existing JSON. If the final JSON replacement fails, HTML may already be updated. Crash durability is not guaranteed.
 
 Run `cargo test --test scenario_cli` for execution, deterministic output, partial runs, and failure preservation checks.
 
@@ -139,7 +141,9 @@ To change the demo, adapt [`scenario()` and `render()`](examples/rail_viewer/mod
 
 ### Windows Desktop Application
 
-The isolated [desktop package](apps/desktop/README.md) opens a native Windows window and validates the bundled Rail result through the existing consumer adapter. It uses pinned GPUI Kit dependencies in a separate Cargo workspace; root library checks remain independent of GUI dependencies. This initial shell displays the fixture's node and snapshot counts. Scenario commands and playback remain follow-up work.
+The [desktop app](apps/desktop/README.md) opens Rail scenario JSON and saves the same result JSON as the CLI. Choose **Open scenario…**, select [rail-demo.json](tests/fixtures/scenarios/rail-demo.json), then choose **Run**. The demo completes at tick 18 with 19 snapshots. **Save result as…** writes the displayed run to the file you choose, replacing an existing result.
+
+Runs use the opened file's `max_ticks`. Short runs display **Partial** and can be saved. The app records in the background and stops an oversized recording as soon as its encoded frames exceed the 16 MiB result limit. Opening a scenario, including reopening the same file after an edit, labels the displayed recording **Previous run**. You can save that recording until a new run succeeds. Save protects the chosen and resolved input paths, including their current targets after a link changes. The desktop app follows the CLI's output permission and EFS rules. If you close the window during Save, it waits until you cancel the picker or the write succeeds. A save error keeps the window open for retry.
 
 With the Windows MSVC tools, SDK, CMake, and stable Rust installed:
 
