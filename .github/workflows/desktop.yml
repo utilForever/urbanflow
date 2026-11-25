@@ -1,0 +1,44 @@
+name: Desktop
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: 🪟 Windows desktop
+    runs-on: windows-latest
+    env:
+      CARGO_BUILD_JOBS: "2"
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+      - name: Cache desktop dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop -> target
+      - name: Check
+        run: cargo check --locked --all-targets --target x86_64-pc-windows-msvc
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --locked --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+      - name: Test
+        run: cargo test --locked --target x86_64-pc-windows-msvc
+      - name: Build application
+        run: cargo build --locked --target x86_64-pc-windows-msvc
